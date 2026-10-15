@@ -1,0 +1,106 @@
+# AI-CAD
+
+面向任意 Agent 的 Headless-First 精确 B-Rep CAD 原型。核心是独立 C++ 服务；
+CLI 与 MCP 使用同一命令协议，没有专用 LLM 或特定 Agent 依赖。首选候选内核 SMLib，
+公共 Shape / IKernel 接口不包含第三方类型。
+
+## 第一轮状态
+
+已完成：官方 SMLib 调查、固定版本、原版内核独立编译、能力探针、九模块 MVP 架构，
+以及可运行的 Box → 截图 → CPU 像素拾边 → Fillet → 有效性检查 → 结果图 → SMB 示例。
+支持独立文档、修改失败回滚、Undo/Redo、过期引用拒绝，以及本地 CLI / MCP 接入。
+
+**完整第三阶段尚未完成**：STEP import/export、GPU Picking、跨编辑 Persistent Naming、
+磁盘文档版本恢复仍未实现。当前导出是 SMLib 原生 `.smb`，不能代替 STEP。
+Boolean 已在原版内核探针验证，尚未暴露为文档命令。
+当前渲染为 CPU 预览，支持 shaded / face-id / edge-id PNG；像素选取为近似预览拾取。
+
+## 构建与测试
+
+需要 Git、CMake ≥ 3.20、Ninja、C++17 编译器和 Python ≥ 3.10。Python 仅使用标准库。
+不需要显示服务器、GPU、OpenUSD、Python CAD 包或 Agent 账号。
+本机验证 Linux x86_64 / GCC 15.2；其他平台未验证。
+
+```sh
+git submodule update --init --recursive
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+./build/kernel_probe
+python3 examples/box_fillet.py
+```
+
+结果位于 `artifacts/demo.json`、PNG 图和 `artifacts/box-fillet.smb`。
+示例使用一个可见 edge-ID 像素进行确定性自动选择；没有运行 VLM 推理。
+已有 VLM 的 Agent 可读取 shaded 图，提供自己的像素坐标调用 `render.pick`。
+
+## 运行服务 / CLI
+
+```sh
+./build/cad-server
+# 或含 CPU 截图和像素拾取的 CLI 薄层：
+python3 modules/cad-cli/main.py
+```
+
+每行输入一个 JSON，立即返回一行 JSON；同一个进程保留文档状态。先发送：
+
+```json
+{"op":"capabilities"}
+{"op":"document.create"}
+```
+
+然后用返回的 document ID 创建模型，revision 是上一状态版本：
+
+```json
+{"op":"model.box","document":"<document>","revision":0,"size":[10,10,10]}
+{"op":"topology.edges","document":"<document>"}
+{"op":"render.snapshot","document":"<document>"}
+{"op":"render.pick","render_id":"<render_id>","x":192,"y":110}
+{"op":"model.fillet","document":"<document>","revision":1,"edge":"<reference>","radius":1}
+{"op":"document.state","document":"<document>"}
+{"op":"export.native","document":"<document>","path":"artifacts/result.smb"}
+```
+
+`render.snapshot/pick` 由 Python CLI/MCP 薄层执行，其他命令由 C++ 服务执行。
+不同进程的文档相互独立；CLI 和 MCP 默认各自启动 worker，不共享同一个文档会话。
+退出进程后内存历史消失。自定义构建目录可设置 `CAD_SERVER=/absolute/path/cad-server`。
+导出父目录需已存在；snapshot 会创建其输出目录。
+
+## MCP
+
+```sh
+python3 /absolute/path/ai-cad/modules/cad-mcp/server.py
+```
+
+任意支持 MCP stdio 的 host 可配置：
+
+```json
+{
+  "mcpServers": {
+    "ai-cad": {
+      "command": "python3",
+      "args": ["/absolute/path/ai-cad/modules/cad-mcp/server.py"]
+    }
+  }
+}
+```
+
+具体 host 的配置文件位置自行选择，不需要修改内核。工具 `cad_command` 的参数为
+`{"command":{"op":"...",...}}`。MCP 基线版本为 2025-11-25；已测试本地 JSON-RPC
+握手与工具调用，尚未在真实 Claude Code / Codex / Pi / DSH 客户端逐一验证。
+
+实现参考 [MCP stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、
+[生命周期](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle) 和
+[Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)。
+
+## 工程记录
+
+- [SMLib 调查、许可证、平台、生命周期、命名与 OCCT 对比](docs/investigation.md)
+- [MVP 架构与技术决策](docs/architecture.md)
+- [协议和失败语义](docs/protocol.md)
+- [Agent 使用指南](modules/cad-skills/GUIDE.md)
+- [验证结果与已知限制](docs/validation.md)
+- [第三方说明](THIRD_PARTY.md)
+
+尚未选择本项目原创代码的开源许可证；第三方许可证不自动覆盖原创代码。
+没有配置远端，也没有推送。完整开源发布前需确定主许可证。
