@@ -27,7 +27,9 @@ public:
     check(SmApiBrepComputeVolume(body.get(),1e-7,volume));
     SmTArray<SmFace*> faces; SmTArray<SmEdge*> edges;
     check(SmApiGetFaces(body.get(),faces)); check(SmApiGetEdges(body.get(),edges));
-    return {volume,faces.GetSize(),edges.GetSize(),bool(manifold && std::isfinite(volume) && volume>0 && body->AssertValid())};
+    SmPoint3d minimum, maximum;
+    check(SmApiBrepBoundingBox(body.get(),TRUE,minimum,maximum));
+    return {volume,faces.GetSize(),edges.GetSize(),bool(manifold && std::isfinite(volume) && volume>0 && body->AssertValid()),point(minimum),point(maximum)};
   }
   std::vector<Edge> edges() const override {
     SmTArray<SmPoint3d> points; SmTArray<ULONG> counts; SmTArray<SmEdge*> edges;
@@ -72,6 +74,8 @@ public:
 class SmlibKernel final : public IKernel {
 public:
   SmlibKernel() { SmApiCreateContext(); }
+  std::string name() const override { return "smlib"; }
+  std::string native_format() const override { return "smb"; }
   std::unique_ptr<Shape> box(Point size) override {
     for(double d:size) if(!std::isfinite(d) || d<=0 || d>1e6) throw std::invalid_argument("box dimensions must be finite in (0,1000000] mm");
     SmBrep* raw=nullptr; auto s=SmApiCreateBox(SmVector3d(0,0,0),size[0],size[1],size[2],raw);

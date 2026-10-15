@@ -63,3 +63,21 @@ python3 examples/box_fillet.py
 - 文档、revision、render 缓存和 Undo/Redo 只在进程内；无崩溃恢复、取消或资源限制。
 - 导出 SMB 已验证写出，尚未增加本服务原生 reload/roundtrip 命令。
 - Windows/macOS/ARM、完整 Packman/USD 构建、OCCT 实测比较未执行。
+
+## 第二轮：STEP 原生服务（2026-10-16）
+
+新增可选 OCCT 7.9.2 adapter（Ubuntu 包 7.9.2+dfsg-4）。
+先新增 4 个 STEP 验收测试，在旧服务上全部失败；实现后通过。
+继续增加 periodic/NURBS 和 unsupported-components，现有 CTest 4/4 通过，STEP suite 共 6 个 unittest。
+
+- Box 与 Fillet：STEP 文件头、MANIFOLD_SOLID_BREP、无 TRIANGULATED_FACE_SET；往返体积相对容差
+  1e-7（绝对下限 1e-6），bounds 绝对容差 1e-5 mm，faces/edges 一致、valid=true。
+- Cylinder / Sphere / Torus / NURBS cylinder：解析体积、非空网格、边查询、再次 export/import。
+- 米制 STEP 输入换算为毫米；2×3×4 m → 2000×3000×4000 mm，体积 24e9 mm³。
+- corrupt / empty / missing STEP、stale revision 均不改变模型，也不破坏 redo。
+- 成功导入截断 redo；旧引用拒绝，新引用仍能进行 Fillet。
+- 多 solid、开放 sheet、solid+sheet 混合输入均拒绝，原文档保持不变。
+- NURBS 积分回归曾失败；改用带 knot span 的 Gauss-Kronrod 积分后以原容差通过。
+
+构建说明、依赖与决策见 ADR-002。上文“STEP 未实现”是第一轮历史记录；现在 OCCT 后端支持，
+SMLib 后端仍不支持。此段记录仅说明原生服务测试，CLI/MCP 完整工作流验证在后续记录中。
