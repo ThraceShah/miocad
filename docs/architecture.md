@@ -1,11 +1,11 @@
 # MVP 架构 / ADR-001
 
-状态：首轮设计；SMLib 为候选内核；进程内串行、进程间并发；毫米单位。
+状态：MVP 实现中；SMLib 为默认候选，OCCT 为可选 STEP 后端（ADR-002）；进程内串行、进程间并发；毫米单位。
 
 ```text
 任意 Agent → MCP stdio / CLI → JSON command → cad-server
                                        → cad-modeling → cad-document → cad-kernel
-                                       → cad-topology                 → SMLib
+                                       → cad-topology                 → SMLib / OCCT
                                        → cad-render ← neutral Mesh / Edge polylines
 ```
 
@@ -47,8 +47,8 @@ GPU 不是几何真值源：结果需映射回当前 revision 的 topology token
 
 ## 后续准入门槛
 
-1. STEP import/export：对原生解析面、NURBS、闭合周期面和 fillet 做独立 roundtrip；
-   校核 bounds、volume、topology、tolerances，必要时用 OCCT 作独立验证器。
+1. STEP import/export：已通过 OCCT 后端的解析面、NURBS、闭合周期面和 fillet roundtrip；
+   已核对 bounds/volume/topology。SMLib translator、外部内核验证和更复杂公差审计仍待实现。
 2. Naming：验证通知覆盖；记录 generated/modified/deleted lineage；对不确定映射返回歧义。
 3. 渲染：无显示 GPU backend、整数 face/edge ID buffer、深度一致 picking，固定 camera 回归。
 4. 完整八步 Agent 工作流的 MCP 集成测试；至少两种 host 接入同一个协议。

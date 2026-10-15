@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -48,11 +49,55 @@ class AccessTest(unittest.TestCase):
                 response=rpc('tools/call',{'name':'cad_command','arguments':{'command':dict(op='render.snapshot',document=doc,directory=tmp)}})['result']
                 self.assertFalse(response['isError'])
                 self.assertEqual(base64.b64decode(response['content'][1]['data'])[:8],b'\x89PNG\r\n\x1a\n')
+            if call({'op':'capabilities'})['result']['step_export']:
+                with tempfile.TemporaryDirectory() as tmp:
+                    path=str(Path(tmp)/'mcp-fillet.step')
+                    self.assertTrue(call(dict(op='export.step',document=doc,path=path))['ok'])
+                    source=call(dict(op='document.state',document=doc))['result']['data']
+                    imported=call({'op':'document.create'})['result']['document']
+                    restored=call(dict(op='import.step',document=imported,revision=0,path=path))
+                    self.assertTrue(restored['ok'],restored)
+                    self.assertAlmostEqual(source['volume'],restored['result']['data']['volume'],places=5)
+                    self.assertTrue(restored['result']['data']['valid'])
+                    corrupt=Path(tmp)/'bad.step'; corrupt.write_text('bad STEP')
+                    failed=rpc('tools/call',{'name':'cad_command','arguments':{'command':dict(op='import.step',document=imported,revision=1,path=str(corrupt))}})['result']
+                    self.assertTrue(failed['isError'])
+                    self.assertEqual(restored['result'],call(dict(op='document.state',document=imported))['result'])
             self.assertEqual(rpc('missing')['error']['code'],-32601)
         finally:
             p.stdin.close(); p.wait(timeout=10); p.stdout.close()
         self.assertEqual(p.returncode,0)
+    def test_complete_cpu_workflow_and_step_roundtrip(self):
+        if os.environ.get('CAD_KERNEL','smlib')!='occt': self.skipTest('STEP workflow requires OCCT')
+        with tempfile.TemporaryDirectory() as tmp:
+            result=subprocess.run([sys.executable,str(ROOT/'examples/box_fillet.py'),'--kernel','occt','--output',tmp],capture_output=True,text=True,check=True)
+            report=json.loads(result.stdout)
+            self.assertTrue(report['step_export'])
+            self.assertTrue(Path(report['step_path']).is_file())
+            self.assertAlmostEqual(report['state']['data']['volume'],report['roundtrip']['data']['volume'],places=5)
+            for name in ('before','after'):
+                self.assertEqual(Path(report[name]['images']['shaded']).read_bytes()[:8],b'\x89PNG\r\n\x1a\n')
     def test_cli(self):
-        result=subprocess.run([sys.executable,str(ROOT/'modules/cad-cli/main.py')],input='{"op":"capabilities"}\n',capture_output=True,text=True,check=True)
-        self.assertFalse(json.loads(result.stdout)['result']['step_export'])
+        p=subprocess.Popen([sys.executable,str(ROOT/'modules/cad-cli/main.py'),'--kernel',os.environ.get('CAD_KERNEL','smlib')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+        def call(command):
+            p.stdin.write(json.dumps(command)+'\n'); p.stdin.flush()
+            response=json.loads(p.stdout.readline())
+            self.assertTrue(response['ok'],response)
+            return response['result']
+        try:
+            caps=call({'op':'capabilities'})
+            self.assertEqual(caps['kernel'],os.environ.get('CAD_KERNEL','smlib'))
+            doc=call({'op':'document.create'})['document']
+            before=call(dict(op='model.box',document=doc,revision=0,size=[2,3,4]))
+            if caps['step_export']:
+                with tempfile.TemporaryDirectory() as tmp:
+                    path=str(Path(tmp)/'cli.step')
+                    call(dict(op='export.step',document=doc,path=path))
+                    other=call({'op':'document.create'})['document']
+                    restored=call(dict(op='import.step',document=other,revision=0,path=path))
+                    self.assertTrue(restored['data']['valid'])
+                    self.assertAlmostEqual(restored['data']['volume'],before['data']['volume'],places=6)
+        finally:
+            p.stdin.close(); p.wait(timeout=10); p.stdout.close()
+        self.assertEqual(p.returncode,0)
 if __name__=='__main__': unittest.main()

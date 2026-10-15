@@ -7,8 +7,10 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'modules/cad-render'))
 from preview import render
 class Client:
-    def __init__(self,server=None):
-        self.process=subprocess.Popen([str(server or os.environ.get('CAD_SERVER') or ROOT/'build/cad-server')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+    def __init__(self,server=None,kernel=None):
+        selected=kernel or os.environ.get('CAD_KERNEL','smlib')
+        if selected not in ('smlib','occt'): raise ValueError('kernel must be smlib or occt')
+        self.process=subprocess.Popen([str(server or os.environ.get('CAD_SERVER') or ROOT/'build/cad-server'),'--kernel',selected],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         self.frames={}
     def raw(self,request):
         self.process.stdin.write(json.dumps(request,allow_nan=False)+'\n'); self.process.stdin.flush()

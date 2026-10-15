@@ -1,2 +1,3 @@
 # Preserve vendored upstream bytes, including whitespace in license notices.
 third_party/json/* -whitespace
+third_party/occt/* -whitespace

@@ -1,6 +1,7 @@
 """Integration contracts: failure atomicity, revisions, isolation and exact geometry."""
 import json
 import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,7 +11,7 @@ from pathlib import Path
 SERVER = sys.argv.pop() if len(sys.argv)>1 else 'build/cad-server'
 class ServiceTest(unittest.TestCase):
     def setUp(self):
-        self.p=subprocess.Popen([SERVER],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+        self.p=subprocess.Popen([SERVER,'--kernel',os.environ.get('CAD_KERNEL','smlib')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         self.doc=self.call('document.create')['document']
     def tearDown(self):
         self.p.stdin.close()
@@ -33,7 +34,7 @@ class ServiceTest(unittest.TestCase):
         other=self.call('document.create')['document']
         edge=self.call('topology.edges',document=self.doc)['data'][0]['reference']
         before=self.state()
-        self.assertEqual(before['data']['volume'],1000)
+        self.assertAlmostEqual(before['data']['volume'],1000,places=7)
         result=self.call('model.fillet',document=self.doc,revision=1,edge=edge,radius=1)
         self.assertAlmostEqual(result['data']['volume'],1000-10*(1-math.pi/4),places=4)
         self.assertTrue(result['data']['valid'])
@@ -42,7 +43,7 @@ class ServiceTest(unittest.TestCase):
         for tri in mesh['triangles']:
             self.assertTrue(all(0<=i<len(mesh['points']) for i in tri['vertices']))
         undone=self.call('document.undo',document=self.doc,revision=2)
-        self.assertEqual(undone['data']['volume'],1000)
+        self.assertAlmostEqual(undone['data']['volume'],1000,places=7)
         self.assertEqual(undone['revision'],3)
         stale=self.raw(dict(op='model.fillet',document=self.doc,revision=3,edge=edge,radius=1))
         self.assertFalse(stale['ok'])  # old token stays stale even after undo
@@ -72,7 +73,7 @@ class ServiceTest(unittest.TestCase):
         self.box()
         self.call('document.undo',document=self.doc,revision=1)
         self.call('model.box',document=self.doc,revision=2,size=[2,3,4])
-        self.assertEqual(self.state()['data']['volume'],24)
+        self.assertAlmostEqual(self.state()['data']['volume'],24,places=7)
         self.assertFalse(self.raw(dict(op='document.redo',document=self.doc,revision=3))['ok'])
     def test_protocol_and_exports(self):
         self.assertFalse(self.raw([])['ok'])
@@ -80,14 +81,19 @@ class ServiceTest(unittest.TestCase):
         self.box()
         before=self.state()
         with tempfile.TemporaryDirectory() as tmp:
-            path=str(Path(tmp)/'box.smb')
+            path=str(Path(tmp)/('box.'+self.call('capabilities')['native_format']))
             self.call('export.native',document=self.doc,path=path)
             self.assertGreater(Path(path).stat().st_size,100)
+            original=Path(path).read_bytes()
+            suffix='.'+self.call('capabilities')['native_format']
+            self.assertFalse(self.raw(dict(op='export.native',document=self.doc,path=path+'\0'+suffix))['ok'])
+            self.assertEqual(original,Path(path).read_bytes())
             path=str(Path(tmp)/'box.step')
-            self.assertFalse(self.raw(dict(op='export.step',document=self.doc,path=path))['ok'])
-            self.assertFalse(Path(path).exists())
+            supports_step=self.call('capabilities')['step_export']
+            self.assertEqual(self.raw(dict(op='export.step',document=self.doc,path=path))['ok'],supports_step)
+            self.assertEqual(Path(path).exists(),supports_step)
             self.assertFalse(self.raw(dict(op='export.native',document=self.doc,path=path))['ok'])
         self.assertEqual(before,self.state())
-        self.assertFalse(self.call('capabilities')['step_export'])
+        self.assertEqual(self.call('capabilities')['kernel'],os.environ.get('CAD_KERNEL','smlib'))
 
 if __name__=='__main__': unittest.main()

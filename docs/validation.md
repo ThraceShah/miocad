@@ -81,3 +81,40 @@ python3 examples/box_fillet.py
 
 构建说明、依赖与决策见 ADR-002。上文“STEP 未实现”是第一轮历史记录；现在 OCCT 后端支持，
 SMLib 后端仍不支持。此段记录仅说明原生服务测试，CLI/MCP 完整工作流验证在后续记录中。
+
+## 第二轮：CLI / MCP / 图像闭环交付
+
+最终双后端配置：`CAD_ENABLE_OCCT=ON`，CTest **6/6 通过**（约 2.2 秒）：
+
+1. kernel_capabilities（未修改的 SMLib 原生探针）
+2. service_transactions（SMLib）
+3. access_preview_mcp（SMLib；STEP 工作流测试按能力跳过）
+4. step_roundtrip（OCCT，6 个 STEP 验收 unittest）
+5. service_transactions_occt
+6. access_preview_mcp_occt（CLI/MCP 都实际写出 STEP 并导入新文档；图像像素拾边示例同测）
+
+额外验证 `CAD_ENABLE_OCCT=OFF` 后重新编译成功，3/3 CTest 通过，再恢复 ON。
+SDK bootstrap 脚本已实际运行成功；固定 OCCT 包版本并产生 packages.json。
+第三方 SMLib 工作区无修改；无远端推送。
+
+实际运行：
+
+```sh
+python3 examples/box_fillet.py --kernel occt
+python3 examples/box_fillet.py --kernel smlib
+```
+
+OCCT 示例结果：
+
+- 结果模型 volume=997.8539816339742 mm³，faces=7，edges=15，valid=true。
+- STEP 导入新文档 volume=997.8539816339755 mm³，faces=7，edges=15，valid=true。
+- 两者 bounds 在 1e-5 mm 以内一致（最大点均为 [10,10,10]）。
+- 生成物：artifacts/occt/box-fillet.step、box-fillet.brep、demo.json，以及 shaded/face-id/edge-id PNG。
+- 已查看结果 shaded 图，圆角外观正常；示例本身仍使用确定性 CPU 像素选择，没有运行真实 VLM。
+
+导出边界回归：包含 NUL 的路径在 C++/OS 文件接口中会被截断，可能绕过临时文件路径并写到已有文件。
+先以保护文件的测试复现（旧行为错误地返回成功），随后在所有导入/导出路径入口拒绝空字符串和 NUL；
+STEP 和两种原生格式的回归测试均通过，已有文件保持原样。
+
+本轮完成的是 **CPU 拾取 + OCCT 精确 STEP 的工作流**。GPU Picking、SMLib STEP bridge、
+跨编辑 Naming、持久版本恢复、真实 Agent host 和外部内核对 STEP 的独立验证仍未完成。

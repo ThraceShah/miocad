@@ -13,6 +13,12 @@ json state(const cad::Document& d) {
   if(d.shape()) { auto s=d.shape()->state(); result.update({{"volume",s.volume},{"faces",s.faces},{"edges",s.edges},{"valid",s.valid},{"bounds",{{"min",s.minimum},{"max",s.maximum}}}}); }
   return result;
 }
+std::string file_path(const json& request) {
+  auto path=request.at("path").get<std::string>();
+  if(path.empty() || path.find('\0')!=std::string::npos)
+    throw std::invalid_argument("file path must be nonempty and contain no NUL characters");
+  return path;
+}
 int main(int argc, char** argv) try {
   std::string selected="smlib";
   if(argc==3 && std::string(argv[1])=="--kernel") selected=argv[2];
@@ -40,7 +46,7 @@ int main(int argc, char** argv) try {
           if(!rev.is_number_unsigned() && !(rev.is_number_integer() && rev.get<long long>()>=0)) throw std::invalid_argument("revision must be nonnegative integer");
           doc.expect(rev.get<std::uint64_t>());
           if(op=="model.box") doc.commit(kernel->box(request.at("size").get<cad::Point>()));
-          else if(op=="import.step") doc.commit(kernel->import_step(request.at("path").get<std::string>()));
+          else if(op=="import.step") doc.commit(kernel->import_step(file_path(request)));
           else if(op=="model.fillet") {
             if(!doc.shape()) throw std::invalid_argument("empty document");
             auto edge=cad::resolve_edge(request.at("edge").get<std::string>(),id,doc.revision(),doc.shape()->state().edges);
@@ -58,7 +64,7 @@ int main(int argc, char** argv) try {
             for(const auto& t:mesh.triangles) triangles.push_back({{"vertices",t.vertices},{"face",cad::token(id,doc.revision(),"face",t.face)}});
             result={{"points",mesh.points},{"triangles",triangles}};
           } else if(op=="export.native" || op=="export.step") {
-            auto path=request.at("path").get<std::string>();
+            auto path=file_path(request);
             bool step=op=="export.step";
             if(step && !kernel->supports_step()) throw std::invalid_argument("unsupported capability: STEP export unavailable for selected kernel");
             const auto extension=std::filesystem::path(path).extension().string();

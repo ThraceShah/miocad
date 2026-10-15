@@ -40,4 +40,10 @@ if(CAD_ENABLE_OCCT)
   target_link_libraries(occt-fixtures PRIVATE cad-occt-sdk)
   add_test(NAME step_roundtrip COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/step_test.py $<TARGET_FILE:cad-server> $<TARGET_FILE:occt-fixtures>)
   set_tests_properties(step_roundtrip PROPERTIES TIMEOUT 60)
+  add_test(NAME service_transactions_occt COMMAND ${CMAKE_COMMAND} -E env CAD_KERNEL=occt
+    ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/service_test.py $<TARGET_FILE:cad-server>)
+  add_test(NAME access_preview_mcp_occt COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/access_test.py)
+  set_tests_properties(access_preview_mcp_occt PROPERTIES
+    ENVIRONMENT "CAD_SERVER=$<TARGET_FILE:cad-server>;CAD_KERNEL=occt")
+  set_tests_properties(service_transactions_occt access_preview_mcp_occt PROPERTIES TIMEOUT 60)
 endif()
