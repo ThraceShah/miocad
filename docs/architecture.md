@@ -1,17 +1,17 @@
 # MVP 架构 / ADR-001
 
-状态：MVP 实现中；SMLib 为默认候选，OCCT 为可选 STEP 后端（ADR-002）；进程内串行、进程间并发；毫米单位。
+状态：首轮设计；内核使用 SMLib；进程内串行、进程间并发；毫米单位。
 
 ```text
 任意 Agent → MCP stdio / CLI → JSON command → cad-server
                                        → cad-modeling → cad-document → cad-kernel
-                                       → cad-topology                 → SMLib / OCCT
+                                       → cad-topology                 → SMLib
                                        → cad-render ← neutral Mesh / Edge polylines
 ```
 
 | 模块 | 职责与边界 |
 |---|---|
-| cad-kernel | IKernel / Shape 接口；唯一包含第三方类型的实现；创建、copy、fillet、validate、mesh、native export；STEP 由 capability 协商 |
+| cad-kernel | IKernel / Shape 接口；唯一包含第三方类型的实现；创建、copy、fillet、validate、mesh、native export |
 | cad-document | 独立文档，单 body 首版；不可变快照、copy/validate/commit；undo/redo；revision 单调递增 |
 | cad-modeling | 有单位、范围、版本前置条件的建模命令，不把第三方调用透传给 Agent |
 | cad-topology | 文档/revision/entity token，几何摘要；首版过期即拒绝，后续加入 lineage resolver |
@@ -30,7 +30,7 @@ undo/redo 恢复快照并递增 revision；新编辑只在成功时截断 redo�
 
 首版 revision 是进程内历史版本，不是磁盘持久化版本管理。完整版本管理后续需要
 命令日志、内容校验和、原子 snapshot 写入、重启恢复和格式版本迁移。
-SMB 是内核相关格式，不是长期中性文档格式；STEP 是外部交换，不保存文档命令历史。
+SMB 是内核相关格式，不是长期中性文档格式。
 
 ## 选择与图像
 
@@ -47,9 +47,9 @@ GPU 不是几何真值源：结果需映射回当前 revision 的 topology token
 
 ## 后续准入门槛
 
-1. STEP import/export：已通过 OCCT 后端的解析面、NURBS、闭合周期面和 fillet roundtrip；
-   已核对 bounds/volume/topology。SMLib translator、外部内核验证和更复杂公差审计仍待实现。
-2. Naming：验证通知覆盖；记录 generated/modified/deleted lineage；对不确定映射返回歧义。
-3. 渲染：无显示 GPU backend、整数 face/edge ID buffer、深度一致 picking，固定 camera 回归。
-4. 完整八步 Agent 工作流的 MCP 集成测试；至少两种 host 接入同一个协议。
-5. 多 body / Boolean 文档命令、磁盘版本管理、内核崩溃恢复、跨平台 CI。
+1. Naming：验证通知覆盖；记录 generated/modified/deleted lineage；对不确定映射返回歧义。
+2. 渲染：无显示 GPU backend、整数 face/edge ID buffer、深度一致 picking，固定 camera 回归。
+3. 当前建模与截图工作流的 MCP 集成测试；至少两种 host 接入同一个协议。
+4. 多 body / Boolean 文档命令、磁盘版本管理、内核崩溃恢复、跨平台 CI。
+
+2026-10-17 范围修订：仅使用 SMLib，移除 STEP 导出目标和 OCCT 备选要求。验收以 [当前项目范围](scope.md) 为准。

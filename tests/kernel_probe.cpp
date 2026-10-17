@@ -37,6 +37,6 @@ int main() try {
   std::cout << "fillet: volume=" << volume(copy) << " valid=true source_unchanged=true\n";
   SmPolyBrep* rawMesh=nullptr; check(SmApiTessellate(copy,rawMesh)); std::unique_ptr<SmPolyBrep> mesh(rawMesh);
   SmTArray<SmPoint3d> points; mesh->GetPolyPoints(points); require(points.GetSize()>8,"mesh empty");
-  std::cout << "tessellation: vertices=" << points.GetSize() << "\nSTEP: unsupported by official SM_API; see docs/investigation.md\n";
+  std::cout << "tessellation: vertices=" << points.GetSize() << "\n";
   return 0;
 } catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

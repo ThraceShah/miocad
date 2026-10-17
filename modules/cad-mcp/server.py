@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 """Minimal MCP stdio bridge, protocol 2025-11-25; local single-session prototype."""
-import argparse
 import base64
 import json
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
 from client import Client
-OPS=['capabilities','document.create','document.state','document.undo','document.redo','model.box','model.fillet','topology.edges','render.mesh','render.snapshot','render.pick','export.native','export.step','import.step']
-TOOL={'name':'cad_command','description':'Execute a CAD command. Start with capabilities and document.create. Box needs size[3] in mm and revision. Fillet needs a current topology.edges/render.pick reference, radius, revision. Mutations require current revision. Check capabilities: STEP import/export requires the optional OCCT backend; import.step needs path and revision, export.step needs path (.step/.stp). Import supports one solid and replaces the document body. render.snapshot returns shaded and ID images; render.pick takes render_id,x,y. State persists only for this server session.',
+OPS=['capabilities','document.create','document.state','document.undo','document.redo','model.box','model.fillet','topology.edges','render.mesh','render.snapshot','render.pick','export.native']
+TOOL={'name':'cad_command','description':'Execute a CAD command. Start with capabilities and document.create. Box needs size[3] in mm and revision. Fillet needs a current topology.edges/render.pick reference, radius, revision. Mutations require current revision. render.snapshot returns shaded and ID images; render.pick takes render_id,x,y. State persists only for this server session.',
       'inputSchema':{'type':'object','properties':{'command':{'type':'object','properties':{'op':{'type':'string','enum':OPS},'document':{'type':'string'},'revision':{'type':'integer','minimum':0},'size':{'type':'array','items':{'type':'number','exclusiveMinimum':0},'minItems':3,'maxItems':3},'edge':{'type':'string'},'radius':{'type':'number','exclusiveMinimum':0},'path':{'type':'string'},'directory':{'type':'string'},'render_id':{'type':'string'},'x':{'type':'integer','minimum':0},'y':{'type':'integer','minimum':0}},'required':['op'],'additionalProperties':False}},'required':['command'],'additionalProperties':False}}
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--server',help='CAD worker executable (or CAD_SERVER)')
-    parser.add_argument('--kernel',choices=['smlib','occt'],help='Backend (or CAD_KERNEL; default smlib)')
-    args=parser.parse_args()
-    client=Client(args.server,args.kernel); initialized=False; ready=False
+    client=Client(); initialized=False; ready=False
     try:
         for line in sys.stdin:
             request=None

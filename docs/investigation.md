@@ -2,8 +2,9 @@
 
 ## 结论与证据边界
 
-首选候选仍为 SMLib，但未决定生产内核。先编译未修改的官方 SMLib + SM_API 子集，
-将 STEP 和持久拓扑命名列为进入完整 MVP 前的门槛。不能把社区封装的能力视为官方 API 的能力。
+当前内核路线为 SMLib。编译未修改的官方 SMLib + SM_API 子集，
+以建模、事务、拓扑选择和渲染验证推进 MVP。STEP 导出不再作为准入门槛，
+OCCT 不作为备选内核。不能把社区封装的能力视为官方 API 的能力。
 当前调查对应首次拉取的 main HEAD / v1.0.0：
 `c9c5979f04cea8c38213004d4f04df0dcfb40d05`，根目录 VERSION 为 `1.0.0`。
 Git submodule 固定该提交；“最新”指调查时的远端 HEAD，而不是持续追踪分支。
@@ -27,7 +28,7 @@ pybind11 等，各自许可证须分别处理。这里的独立内核构建不�
 
 社区 `awv-informatik/smlibpy` 提供 MIT 封装和 STEP，但其 CMake 会替换若干内核文件
 （`third_party/patches`）。本次只阅读其构建方案，没有采用补丁，也没有把它作为官方基线。
-后续若采用其 STEP translator，需要独立审查许可、补丁必要性和转换精度。
+其 STEP translator 不在当前实施范围。
 
 ## 构建与平台
 
@@ -94,7 +95,7 @@ geometry change、pre/post edit 等。属性分为可持久、可复制和临时
 属性传播测试，构建一对多/多对一 lineage，并对歧义返回候选，不能静默猜测。
 该回调方案尚未实测完整覆盖，属于高优先级风险。
 
-## 与 OpenCASCADE 比较
+## 历史技术对比（背景资料，不构成备选内核要求）
 
 依据：[OCCT 仓库](https://github.com/Open-Cascade-SAS/OCCT)、
 [OCAF 官方文档](https://github.com/Open-Cascade-SAS/OCCT/wiki/ocaf)、
@@ -113,5 +114,5 @@ geometry change、pre/post edit 等。属性分为可持久、可复制和临时
 | 本次实测 | Linux 原版内核能力探针 | 未构建；这里是源码/官方资料比较，不是性能对比 |
 
 OCAF naming 也需要正确登记操作历史与选择语义，不是任意参数变化下自动解决所有拓扑歧义。
-暂不作性能优劣结论。决策：保留 SMLib 候选，把 STEP 与 lineage 验证作为准入门槛；若不能
-以合理复杂度补齐，优先落地 OCCT adapter，而不是把三角网格伪装成精确 STEP。
+暂不作性能优劣结论。2026-10-17 范围修订：仅推进 SMLib，不实施 OCCT adapter；
+STEP 导出从需求中移除。上面的格式能力与历史对比仅作为调查事实保留。
