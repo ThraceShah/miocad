@@ -8,7 +8,7 @@ CLI 与 MCP 使用同一命令协议，没有专用 LLM 或特定 Agent 依赖�
 
 默认共享 CAD 服务，Agent/MCP/CLI、桌面 GUI 和 WebUI 为平级入口；C++ 核心抽取 Commander，
 对外服务及客户端统一使用 Rust，桌面/Web 采用 egui / eframe，视口采用 wgpu。
-Python 仅保留为内部脚本和测试工具。**这些是目标架构，当前代码尚未迁移**；下方运行命令仍对应现有原型。
+Python 仅保留为内部脚本和测试工具。**P1 Commander 抽取已完成**；Rust 对外组件、共享服务及 GUI 尚未实现，下方仍使用现有 Python 入口。
 详见 [架构决策](docs/architecture.md) 和 [分阶段实施计划](docs/implementation-plan.md)。
 
 ## 当前状态
@@ -16,6 +16,7 @@ Python 仅保留为内部脚本和测试工具。**这些是目标架构，当�
 已完成：官方 SMLib 调查、固定版本、原版内核独立编译、能力探针、九模块 MVP 架构，
 以及可运行的 Box → 截图 → CPU 像素拾边 → Fillet → 有效性检查 → 结果图 → SMB 示例。
 支持独立文档、修改失败回滚、Undo/Redo、过期引用拒绝，以及本地 CLI / MCP 接入。
+新增可独立链接的 C++ Commander、核心命令发现与分类错误；worker 仅处理 JSONL 收发。
 
 **后续工作**：GPU Picking、跨编辑 Persistent Naming、磁盘文档版本恢复。
 STEP 导出不再属于项目要求；不引入 OCCT 备选内核。当前支持 SMLib 原生 `.smb` 导出。
@@ -53,6 +54,7 @@ python3 modules/cad-cli/main.py
 
 ```json
 {"op":"capabilities"}
+{"op":"commands.list"}
 {"op":"document.create"}
 ```
 
@@ -106,6 +108,7 @@ python3 /absolute/path/ai-cad/modules/cad-mcp/server.py
 - [SMLib 调查、许可证、平台、生命周期与命名](docs/investigation.md)
 - [共享服务、Commander 与 Rust/egui 架构决策](docs/architecture.md)
 - [改造实施计划与验收门槛](docs/implementation-plan.md)
+- [Commander 原生接口与事务边界](modules/cad-commander/README.md)
 - [协议和失败语义](docs/protocol.md)
 - [Agent 使用指南](modules/cad-skills/GUIDE.md)
 - [验证结果与已知限制](docs/validation.md)

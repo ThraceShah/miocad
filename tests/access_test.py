@@ -39,6 +39,9 @@ class AccessTest(unittest.TestCase):
             self.assertEqual(init['result']['protocolVersion'],'2025-11-25')
             p.stdin.write(json.dumps(dict(jsonrpc='2.0',method='notifications/initialized'))+'\n'); p.stdin.flush()
             self.assertEqual(rpc('tools/list')['result']['tools'][0]['name'],'cad_command')
+            catalog=call({'op':'commands.list'})
+            self.assertTrue(catalog['ok'])
+            self.assertIn('model.fillet',{item['id'] for item in catalog['result']})
             doc=call({'op':'document.create'})['result']['document']
             self.assertTrue(call(dict(op='model.box',document=doc,revision=0,size=[10,10,10]))['ok'])
             edge=call(dict(op='topology.edges',document=doc))['result']['data'][0]['reference']

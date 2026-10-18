@@ -1,6 +1,6 @@
 # 共享服务与 Rust/egui 改造计划
 
-日期：2026-10-18。状态：待执行；本次只形成文档。
+日期：2026-10-18。状态：P1 已实现并验收；P2–P7 尚未开始。
 依据：[架构决策](architecture.md) 与 [项目范围](scope.md)。
 阶段顺序按依赖排列，不作未经验证的工期承诺。每阶段通过验收后提交本地 Git commit 并报告，
 不擅自推送。迁移中保持现有 SMLib 能力可运行，按实际代码更新状态与使用说明。
@@ -8,7 +8,7 @@
 ## 0. 基线与执行原则
 
 现有基线：SMLib、C++ JSONL worker、Python MCP/CLI、Python CPU 预览；尚无 Rust GUI/服务。
-以下勾选项全部未完成，不把既有 Python 原型计作 Rust 阶段完成。
+P1 的验收结果见下节；不把既有 Python 原型计作 Rust 阶段完成。
 
 - 优先证明同一命令的结果、回滚和引用语义，再扩大界面功能。
 - 关键边界先写能失败的契约测试，再实现；不为文档或简单重命名单独堆测试。
@@ -21,10 +21,10 @@
 
 目标：先建立应用核心边界，不改变既有传输和行为。
 
-- [ ] 从 `modules/cad-server/main.cpp` 抽取文档管理、命令分发、校验和响应结果。
-- [ ] 让 main 主要处理 JSONL 收发，Commander 可在无窗口、无网络环境独立测试。
-- [ ] 保留当前命令 ID、单位、revision、实体引用与 copy / validate / commit 语义。
-- [ ] 建立基础命令描述：命令 ID、输入/输出、只读/修改、前置条件与错误分类。
+- [x] 从 `modules/cad-server/main.cpp` 抽取文档管理、命令分发、校验和响应结果。
+- [x] 让 main 主要处理 JSONL 收发，Commander 可在无窗口、无网络环境独立测试。
+- [x] 保留当前命令 ID、单位、revision、实体引用与 copy / validate / commit 语义。
+- [x] 建立基础命令描述：命令 ID、输入/输出、只读/修改、前置条件与错误分类。
 
 验收：
 
@@ -34,6 +34,15 @@
 - 本阶段不宣称 Python 已退出，也不建立第二套命令实现。
 
 交付：Commander 库、薄 worker、边界测试；同步记录新目录与当前协议兼容性。
+
+P1 完成记录（2026-10-18）：
+
+- 新增 cad-commander 库；cad-server 仅保留 JSONL 收发、解析与传输错误。
+- 增加 commands.list 与命令描述；既有错误 code 保留，新增 kind 分类。
+- 对暂存 Document 完成操作和响应构造后再发布，保持失败回滚与 redo。
+- 测试先跑出预期失败，再完成实现；CTest 4/4 通过，其中 Commander 含 8 个直接契约场景。
+- 原有 CLI/MCP/CPU 预览通过，示例成功导出有效 Fillet 的 SMB 文件。
+- Python 产品入口仍是过渡实现，尚无 Rust workspace、共享服务或 GUI。
 
 ## P2：统一协议与 Rust 客户端基础
 
@@ -169,5 +178,5 @@
 
 ## 下一次执行的起点
 
-从 P1 开始：先检查工作区与当前测试，补 Commander 契约测试，抽取 C++ 应用门面，
-保持现有入口可用并提交。暂不同时启动 GUI、Web 发布或全部 Rust 迁移。
+下一阶段从 P2 开始：以 P1 注册表为输入梳理中性协议与契约测试，建立最小 Rust workspace/client。
+保持现有入口可用，不提前把 P3 共享服务或 GUI/Web 发布计入 P2。

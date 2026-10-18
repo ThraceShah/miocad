@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
 from client import Client
-OPS=['capabilities','document.create','document.state','document.undo','document.redo','model.box','model.fillet','topology.edges','render.mesh','render.snapshot','render.pick','export.native']
+OPS=['commands.list','capabilities','document.create','document.state','document.undo','document.redo','model.box','model.fillet','topology.edges','render.mesh','render.snapshot','render.pick','export.native']
 TOOL={'name':'cad_command','description':'Execute a CAD command. Start with capabilities and document.create. Box needs size[3] in mm and revision. Fillet needs a current topology.edges/render.pick reference, radius, revision. Mutations require current revision. render.snapshot returns shaded and ID images; render.pick takes render_id,x,y. State persists only for this server session.',
       'inputSchema':{'type':'object','properties':{'command':{'type':'object','properties':{'op':{'type':'string','enum':OPS},'document':{'type':'string'},'revision':{'type':'integer','minimum':0},'size':{'type':'array','items':{'type':'number','exclusiveMinimum':0},'minItems':3,'maxItems':3},'edge':{'type':'string'},'radius':{'type':'number','exclusiveMinimum':0},'path':{'type':'string'},'directory':{'type':'string'},'render_id':{'type':'string'},'x':{'type':'integer','minimum':0},'y':{'type':'integer','minimum':0}},'required':['op'],'additionalProperties':False}},'required':['command'],'additionalProperties':False}}
 

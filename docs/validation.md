@@ -74,3 +74,34 @@ python3 examples/box_fillet.py
 重新配置并构建成功，CTest 3/3 通过；examples/box_fillet.py 运行成功：
 Box / 单边 Fillet / Shaded、Face ID、Edge ID / CPU 拾取 / 有效性验证 / 原生 SMB 导出。
 STEP 不再属于缺失验收项；当前后续目标以 scope.md 为准。
+
+## P1：C++ Commander（2026-10-18）
+
+先执行既有基线，3/3 CTest 通过。新增直接链接 Commander 的契约测试，先以空实现验证失败，
+初始 7 个场景全部按预期失败，再实现库、命令注册表和薄 worker，补充历史响应故障回归。
+
+最终命令：
+
+```sh
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+python3 examples/box_fillet.py
+```
+
+结果：CTest **4/4 通过**（约 0.63 秒）：
+
+- kernel_capabilities：原有未修改 SMLib 探针。
+- commander_contract：8 个原生 C++ 场景，不启动 worker/窗口/网络。
+- service_transactions：5 个 Python unittest，增加 JSONL 解析错误、id 回显、命令发现与分类错误。
+- access_preview_mcp：原有 3 个接入测试，并验证 MCP 可调用 commands.list。
+
+Commander 场景包括：注册目录完整性；真实 SMLib Box/Fillet/mesh/Undo/Redo；
+多文档/多 Commander 实例隔离；错误和参数验证；修改候选后抛异常；无效候选；
+候选验证后响应查询失败；Undo/Redo 响应查询失败；原生导出失败清理临时文件并保留原文件。
+对应失败均不改变原文档、revision 或 redo 分支。
+参数检查包括错误尺寸、负数/浮点/bool/string revision、NaN/Infinity 半径、NUL 文件路径。
+
+示例结果：valid=true，volume=997.8539818196981 mm³，faces=7，edges=15；
+继续生成 shaded/face-id/edge-id PNG 和 artifacts/box-fillet.smb。
+第三方内核源码未修改。仅新增核心命令目录与 error.kind，保留既有成功响应、错误 code 和原有入口。
+尚未实施 P2 Rust/协议生成、P3 共享服务或 GUI；Python 产品入口与 CPU 预览仍待 P4 迁移。

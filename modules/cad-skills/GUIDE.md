@@ -2,7 +2,7 @@
 
 本指南适用于任何能调用 CLI 或 MCP stdio 的 Agent，无需专用模型。
 
-1. 调用 capabilities。先确认所需功能，不能假设 GPU 已实现。
+1. 调用 capabilities；可用 commands.list 发现核心命令、参数和前置条件，不能假设 GPU 已实现。
 2. 创建 document，保存 ID 和 revision；尺寸和半径使用 mm。
 3. 每次修改提供当前 revision，成功后采用响应中的新 revision。
 4. 视觉选择：render.snapshot 获取普通 shaded 图，确定目标像素，再用同一个 render_id 调用
@@ -21,3 +21,6 @@ MCP 会话：`python3 modules/cad-mcp/server.py`，调用工具 cad_command，�
 
 原型限制：单文档单 body、单边圆角、CPU 拾取、内存历史、无持久命名；
 不提供任意内核代码执行工具。可使用 examples/box_fillet.py 验证安装和真实内核能力。
+
+P1 错误新增 error.kind；例如 revision_conflict 需重新读状态，invalid_reference 需重新选择。
+code 仍为 command_failed；不要从错误 message 推断结构化结果。

@@ -1,6 +1,6 @@
 # 共享服务、Commander 与 Rust 客户端架构
 
-日期：2026-10-18。状态：核心方向已确认，代码尚未按本文迁移。
+日期：2026-10-18。状态：核心方向已确认；P1 Commander 已实现，其余目标尚待迁移。
 本文取代首轮 MVP 的目标架构描述；现有实现情况见第 2 节。
 实施顺序与验收门槛见 [实施计划](implementation-plan.md)。
 
@@ -23,16 +23,17 @@ Rust 迁移的主要收益是统一入口实现、复用类型与 SDK、减少�
 
 ## 2. 当前实现基线
 
-当前代码来自 4062637 所在的 SMLib MVP 阶段：
+迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1 后的现状如下：
 
-- C++ `cad-server` 使用 JSONL，在 `main.cpp` 中管理文档、分发命令并组织响应。
-- `cad-document` 保存内存快照与 Undo/Redo；修改采用 copy / validate / commit。
+- C++ `cad-commander` 管理文档、注册/校验/分发命令并组织响应；`cad-server` 仅负责 JSONL 收发。
+- `cad-document` 保存内存快照与 Undo/Redo；建模采用 copy / validate / commit，Commander 暂存文档并在响应构造成功后发布。
 - Python MCP、CLI 通过 `scripts/client.py` 各自启动 C++ worker，尚不共享会话。
 - CPU 渲染与拾取位于 Python 接入代码中，尚无交互式 GUI。
 - 已有 Box、单边 Fillet、拓扑查询、截图、原生 SMB 导出；Boolean 在内核探针层验证。
 - 尚无 Rust workspace、常驻共享服务、事件订阅、egui GUI、GPU Picking、持久 Naming 或磁盘恢复。
 
-本文中的 Rust 模块、共享服务和新协议均为目标，不表示已实现。
+P1 增加了 commands.list、本地命令描述与错误 kind；保持原有成功响应、错误 code 与请求 id 回显。
+本地 schema 不是 P2 中性协议，尚无代码生成；Rust 模块、共享服务和新协议均仍为目标。
 迁移期间的 Python 入口属于临时兼容路径，不能作为最终发布方案。
 
 ## 3. 参考项目及采用原则

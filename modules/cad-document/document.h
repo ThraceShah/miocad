@@ -2,7 +2,12 @@
 #include "kernel.h"
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
 namespace cad {
+class DocumentValidationError : public std::runtime_error {
+public:
+  DocumentValidationError() : std::runtime_error("candidate validation failed") {}
+};
 class Document {
   std::vector<std::shared_ptr<const Shape>> history{nullptr};
   std::size_t cursor=0;
@@ -10,9 +15,16 @@ class Document {
 public:
   std::uint64_t revision() const { return revision_; }
   const Shape* shape() const { return history[cursor].get(); }
+  bool can_undo() const { return cursor > 0; }
+  bool can_redo() const { return cursor+1 < history.size(); }
+  void swap(Document& other) noexcept {
+    history.swap(other.history);
+    std::swap(cursor, other.cursor);
+    std::swap(revision_, other.revision_);
+  }
   void expect(std::uint64_t r) const { if(r!=revision_) throw std::invalid_argument("stale revision"); }
   void commit(std::unique_ptr<Shape> candidate) {
-    if(!candidate || !candidate->state().valid) throw std::runtime_error("candidate validation failed");
+    if(!candidate || !candidate->state().valid) throw DocumentValidationError();
     // Build replacement history before swapping, including allocation failures.
     auto next=std::vector<std::shared_ptr<const Shape>>(history.begin(),history.begin()+cursor+1);
     next.push_back(std::shared_ptr<const Shape>(std::move(candidate)));

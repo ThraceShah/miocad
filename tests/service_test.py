@@ -74,6 +74,25 @@ class ServiceTest(unittest.TestCase):
         self.call('model.box',document=self.doc,revision=2,size=[2,3,4])
         self.assertEqual(self.state()['data']['volume'],24)
         self.assertFalse(self.raw(dict(op='document.redo',document=self.doc,revision=3))['ok'])
+    def test_discovery_and_transport_errors(self):
+        before=self.state()
+        response=self.raw(dict(op='commands.list',id='catalog-request'))
+        self.assertTrue(response['ok'])
+        self.assertEqual(response['id'],'catalog-request')
+        catalog={item['id']:item for item in response['result']}
+        self.assertEqual(catalog['model.fillet']['effect'],'document_write')
+        self.assertIn('current_revision',catalog['model.fillet']['preconditions'])
+        self.assertEqual(catalog['topology.edges']['effect'],'query')
+        failed=self.raw(dict(op='missing-command',id=42))
+        self.assertEqual(failed['id'],42)
+        self.assertEqual(failed['error']['code'],'command_failed')
+        self.assertEqual(failed['error']['kind'],'unknown_command')
+        self.p.stdin.write('{bad json}\n'); self.p.stdin.flush()
+        parsed=json.loads(self.p.stdout.readline())
+        self.assertFalse(parsed['ok'])
+        self.assertEqual(parsed['error']['kind'],'invalid_request')
+        self.assertEqual(before,self.state())
+
     def test_protocol_and_exports(self):
         self.assertFalse(self.raw([])['ok'])
         self.assertFalse(self.raw(dict(op='document.state',document='absent'))['ok'])
