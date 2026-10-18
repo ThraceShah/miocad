@@ -1,0 +1,469 @@
+[
+  {
+    "name": "hello",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "hello",
+      "request_id": 0,
+      "client_id": "fixture"
+    },
+    "valid": true,
+    "dtype": "request"
+  },
+  {
+    "name": "execute",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 1,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": true,
+    "dtype": "request"
+  },
+  {
+    "name": "status",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "request.status",
+      "request_id": 2,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "target_request_id": 1
+    },
+    "valid": true,
+    "dtype": "request"
+  },
+  {
+    "name": "invalid envelope {'request_id': True}",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": true,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid envelope {'client_id': ''}",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 1,
+      "client_id": "",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid envelope {'client_id': 'bad id'}",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 1,
+      "client_id": "bad id",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid envelope {'extra': 1}",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 1,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      },
+      "extra": 1
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid envelope {'request_id': 1.5}",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 1.5,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid envelope {'request_id': 9007199254740992}",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 9007199254740992,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing worker",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "execute",
+      "request_id": 1,
+      "client_id": "fixture",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown method",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "unknown",
+      "request_id": 1,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "command": {
+        "op": "document.create"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "valid box",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1,
+      "size": [
+        10,
+        20,
+        30
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "invalid box {'size': [1, 2]}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1,
+      "size": [
+        1,
+        2
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'size': [1, 2, 3, 4]}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1,
+      "size": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'size': [0, 1, 2]}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1,
+      "size": [
+        0,
+        1,
+        2
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'size': [True, 2, 3]}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1,
+      "size": [
+        true,
+        2,
+        3
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'size': [1000001, 2, 3]}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1,
+      "size": [
+        1000001,
+        2,
+        3
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'revision': True}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": true,
+      "size": [
+        10,
+        20,
+        30
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'revision': -1}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": -1,
+      "size": [
+        10,
+        20,
+        30
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid box {'revision': 1.0}",
+    "schema": "command:model.box",
+    "value": {
+      "op": "model.box",
+      "document": "doc-1",
+      "revision": 1.0,
+      "size": [
+        10,
+        20,
+        30
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "valid radius",
+    "schema": "command:model.fillet",
+    "value": {
+      "op": "model.fillet",
+      "document": "doc-1",
+      "revision": 1,
+      "edge": "opaque",
+      "radius": 1
+    },
+    "valid": true
+  },
+  {
+    "name": "null radius",
+    "schema": "command:model.fillet",
+    "value": {
+      "op": "model.fillet",
+      "document": "doc-1",
+      "revision": 1,
+      "edge": "opaque",
+      "radius": null
+    },
+    "valid": false
+  },
+  {
+    "name": "counter max",
+    "schema": "Counter",
+    "value": 9007199254740991,
+    "valid": true
+  },
+  {
+    "name": "counter overflow",
+    "schema": "Counter",
+    "value": 9007199254740992,
+    "valid": false
+  },
+  {
+    "name": "success response",
+    "schema": "Response",
+    "value": {
+      "protocol": "1.0",
+      "request_id": 1,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "service_id": null,
+      "events": [],
+      "replayed": false,
+      "ok": true,
+      "result": {
+        "document": "doc-1",
+        "revision": 0,
+        "empty": true,
+        "units": "mm"
+      }
+    },
+    "valid": true,
+    "dtype": "response"
+  },
+  {
+    "name": "error response",
+    "schema": "Response",
+    "value": {
+      "protocol": "1.0",
+      "request_id": 1,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "service_id": null,
+      "events": [],
+      "replayed": false,
+      "ok": false,
+      "error": {
+        "code": "command_failed",
+        "kind": "revision_conflict",
+        "message": "stale revision"
+      }
+    },
+    "valid": true,
+    "dtype": "response"
+  },
+  {
+    "name": "both result and error",
+    "schema": "Response",
+    "value": {
+      "protocol": "1.0",
+      "request_id": 1,
+      "client_id": "fixture",
+      "worker_id": "worker-1",
+      "session_id": "session-1",
+      "service_id": null,
+      "events": [],
+      "replayed": false,
+      "ok": true,
+      "result": {},
+      "error": {
+        "code": "command_failed",
+        "kind": "revision_conflict",
+        "message": "stale revision"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown error kind",
+    "schema": "Error",
+    "value": {
+      "code": "command_failed",
+      "kind": "mystery",
+      "message": "stale revision"
+    },
+    "valid": false
+  },
+  {
+    "name": "empty state",
+    "schema": "State",
+    "value": {
+      "revision": 0,
+      "units": "mm",
+      "empty": true
+    },
+    "valid": true,
+    "dtype": "state"
+  },
+  {
+    "name": "nonempty state",
+    "schema": "State",
+    "value": {
+      "revision": 1,
+      "units": "mm",
+      "empty": false,
+      "volume": 1000,
+      "faces": 6,
+      "edges": 12,
+      "valid": true
+    },
+    "valid": true,
+    "dtype": "state"
+  },
+  {
+    "name": "missing nonempty metrics",
+    "schema": "State",
+    "value": {
+      "revision": 1,
+      "units": "mm",
+      "empty": false
+    },
+    "valid": false
+  },
+  {
+    "name": "hello float request id",
+    "schema": "Request",
+    "value": {
+      "protocol": "1.0",
+      "method": "hello",
+      "request_id": 0.0,
+      "client_id": "fixture"
+    },
+    "valid": false
+  }
+]

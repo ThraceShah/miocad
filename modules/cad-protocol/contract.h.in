@@ -1,0 +1,2 @@
+#pragma once
+namespace cad::protocol { inline constexpr const char* contract_text = R"CAD_CONTRACT(@CAD_CONTRACT_JSON@)CAD_CONTRACT"; }

@@ -2,3 +2,5 @@
 /artifacts/
 /.venv/
 __pycache__/
+
+/target/

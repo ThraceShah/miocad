@@ -1,6 +1,7 @@
 #include "commander.h"
 #include "commands.h"
 #include "reference.h"
+#include "protocol.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -37,61 +38,7 @@ Json document_state(const Document& document) {
     return result;
 }
 
-// Validation of the small schema subset used by this registry. This is not a
-// general JSON Schema engine; the cross-language schema contract belongs to P2.
-void validate(const Json& value, const Json& schema, const std::string& field) {
-    const auto type = schema.value("type", std::string{});
-    bool correct = true;
-    if (type == "object") correct = value.is_object();
-    else if (type == "array") correct = value.is_array();
-    else if (type == "string") correct = value.is_string();
-    else if (type == "integer") correct = value.is_number_integer();
-    else if (type == "number") correct = value.is_number();
-    else if (type == "boolean") correct = value.is_boolean();
-    if (!correct) throw CommandError("invalid_params", field + " must be " + type);
-    if (schema.contains("const") && value != schema["const"])
-        throw CommandError("invalid_params", field + " has an unexpected value");
-    if (value.is_number()) {
-        if (!std::isfinite(value.get<double>())) throw CommandError("invalid_params", field + " must be finite");
-        if (schema.contains("minimum") && value < schema["minimum"])
-            throw CommandError("invalid_params", field + " is below its minimum");
-        if (schema.contains("maximum") && value > schema["maximum"])
-            throw CommandError("invalid_params", field + " exceeds its maximum");
-        if (schema.contains("exclusiveMinimum") && value <= schema["exclusiveMinimum"])
-            throw CommandError("invalid_params", field + " must be positive");
-    }
-    if (value.is_object()) {
-        if (schema.contains("required")) for (const auto& name : schema["required"])
-            if (!value.contains(name.get<std::string>()))
-                throw CommandError("invalid_params", field + "." + name.get<std::string>() + " is required");
-        if (schema.contains("properties")) for (auto it = schema["properties"].begin(); it != schema["properties"].end(); ++it)
-            if (value.contains(it.key())) validate(value[it.key()], it.value(), field + "." + it.key());
-    }
-    if (value.is_array()) {
-        if ((schema.contains("minItems") && value.size() < schema["minItems"].get<std::size_t>()) ||
-            (schema.contains("maxItems") && value.size() > schema["maxItems"].get<std::size_t>()))
-            throw CommandError("invalid_params", field + " has an invalid number of items");
-        if (schema.contains("items")) for (std::size_t i = 0; i < value.size(); ++i)
-            validate(value[i], schema["items"], field + "[" + std::to_string(i) + "]");
-    }
-}
 
-Json input_schema(const std::string& id, Json properties = Json::object(), Json required = Json::array()) {
-    properties["op"] = {{"type", "string"}, {"const", id}};
-    properties["id"] = Json::object();
-    required.push_back("op");
-    return {{"type", "object"}, {"properties", std::move(properties)}, {"required", std::move(required)}, {"additionalProperties", true}};
-}
-Json state_schema() {
-    return {{"type", "object"}, {"required", {"revision", "units", "empty"}},
-        {"properties", {{"revision", {{"type", "integer"}, {"minimum", 0}}}, {"units", {{"const", "mm"}}},
-        {"empty", {{"type", "boolean"}}}, {"volume", {{"type", "number"}}},
-        {"faces", {{"type", "integer"}}}, {"edges", {{"type", "integer"}}}, {"valid", {{"type", "boolean"}}}}}};
-}
-Json document_output(Json data) {
-    return {{"type", "object"}, {"required", {"document", "revision", "data"}},
-        {"properties", {{"document", {{"type", "string"}}}, {"revision", {{"type", "integer"}, {"minimum", 0}}}, {"data", std::move(data)}}}};
-}
 }
 
 Json command_error(const std::string& kind, const std::string& message) {
@@ -184,58 +131,30 @@ struct Commander::Impl {
     }
 
     static const std::vector<Spec>& specs() {
-        static const auto entries = [] {
-            const Json doc = {{"type", "string"}};
-            const Json revision = {{"type", "integer"}, {"minimum", 0}};
-            const Json doc_properties = {{"document", doc}};
-            const Json edit_properties = {{"document", doc}, {"revision", revision}};
-            auto box_properties = edit_properties;
-            box_properties["size"] = {{"type", "array"}, {"minItems", 3}, {"maxItems", 3},
-                {"items", {{"type", "number"}, {"exclusiveMinimum", 0}, {"maximum", 1e6}}}, {"description", "Dimensions in mm"}};
-            auto fillet_properties = edit_properties;
-            fillet_properties["edge"] = {{"type", "string"}, {"description", "Opaque current-revision edge reference"}};
-            fillet_properties["radius"] = {{"type", "number"}, {"exclusiveMinimum", 0}, {"description", "Radius in mm"}};
-            auto export_properties = doc_properties;
-            export_properties["path"] = {{"type", "string"}, {"description", "Local native .smb output path; parent must exist; no NUL"}};
-            auto created = state_schema();
-            created["properties"]["document"] = doc;
-            created["required"].push_back("document");
-            const Json edge_output = {{"type", "array"}, {"items", {{"type", "object"}, {"required", {"reference", "points", "length"}}}}};
-            const Json mesh_output = {{"type", "object"}, {"required", {"points", "triangles"}}};
-            const Json file_output = {{"type", "object"}, {"required", {"path", "format"}}};
-            return std::vector<Spec>{
-                {"capabilities", Effect::Query, false, false, false, History::None, input_schema("capabilities"),
-                    {{"type", "object"}, {"required", {"kernel", "gpu_picking", "persistent_naming", "native_format"}}}, &Impl::capabilities},
-                {"commands.list", Effect::Query, false, false, false, History::None, input_schema("commands.list"), {{"type", "array"}}, &Impl::list},
-                {"document.create", Effect::SessionWrite, false, false, false, History::None, input_schema("document.create"), created, &Impl::create},
-                {"document.state", Effect::Query, true, false, false, History::None, input_schema("document.state", doc_properties, {"document"}), document_output(state_schema()), &Impl::state},
-                {"model.box", Effect::DocumentWrite, true, false, true, History::None, input_schema("model.box", box_properties, {"document", "revision", "size"}), document_output(state_schema()), &Impl::box},
-                {"model.fillet", Effect::DocumentWrite, true, true, true, History::None, input_schema("model.fillet", fillet_properties, {"document", "revision", "edge", "radius"}), document_output(state_schema()), &Impl::fillet},
-                {"document.undo", Effect::DocumentWrite, true, false, true, History::Undo, input_schema("document.undo", edit_properties, {"document", "revision"}), document_output(state_schema()), &Impl::undo},
-                {"document.redo", Effect::DocumentWrite, true, false, true, History::Redo, input_schema("document.redo", edit_properties, {"document", "revision"}), document_output(state_schema()), &Impl::redo},
-                {"topology.edges", Effect::Query, true, true, false, History::None, input_schema("topology.edges", doc_properties, {"document"}), document_output(edge_output), &Impl::edges},
-                {"render.mesh", Effect::Query, true, true, false, History::None, input_schema("render.mesh", doc_properties, {"document"}), document_output(mesh_output), &Impl::mesh},
-                {"export.native", Effect::ExternalWrite, true, true, false, History::None, input_schema("export.native", export_properties, {"document", "path"}), document_output(file_output), &Impl::export_native}
-            };
+        static const auto entries=[] {
+            const std::map<std::string,Handler> handlers={
+                {"capabilities",&Impl::capabilities},{"commands.list",&Impl::list},{"document.create",&Impl::create},
+                {"document.state",&Impl::state},{"model.box",&Impl::box},{"model.fillet",&Impl::fillet},
+                {"document.undo",&Impl::undo},{"document.redo",&Impl::redo},{"topology.edges",&Impl::edges},
+                {"render.mesh",&Impl::mesh},{"export.native",&Impl::export_native}};
+            std::vector<Spec> result;
+            for(const auto& item:protocol::contract().at("commands")) {
+                const auto id=item.at("id").get<std::string>();
+                const auto effect=item.at("effect").get<std::string>();
+                const auto& pre=item.at("preconditions");
+                auto has=[&](const char* name){return std::find(pre.begin(),pre.end(),name)!=pre.end();};
+                result.push_back({id,effect=="query"?Effect::Query:effect=="session_write"?Effect::SessionWrite:
+                    effect=="document_write"?Effect::DocumentWrite:Effect::ExternalWrite,
+                    has("document_exists"),has("nonempty_body"),has("current_revision"),
+                    has("undo_available")?History::Undo:has("redo_available")?History::Redo:History::None,
+                    item.at("input_schema"),item.at("output_schema"),handlers.at(id)});
+            }
+            if(result.size()!=handlers.size()) throw std::logic_error("command schema/handler mismatch");
+            return result;
         }();
         return entries;
     }
-
-    static Json catalog() {
-        Json result = Json::array();
-        for (const auto& spec : specs()) {
-            Json preconditions = Json::array();
-            if (spec.document) preconditions.push_back("document_exists");
-            if (spec.body) preconditions.push_back("nonempty_body");
-            if (spec.revision) preconditions.push_back("current_revision");
-            if (spec.history == History::Undo) preconditions.push_back("undo_available");
-            if (spec.history == History::Redo) preconditions.push_back("redo_available");
-            const char* effect = spec.effect == Effect::Query ? "query" : spec.effect == Effect::SessionWrite ? "session_write" :
-                spec.effect == Effect::DocumentWrite ? "document_write" : "external_write";
-            result.push_back({{"id", spec.id}, {"effect", effect}, {"input_schema", spec.input}, {"output_schema", spec.output}, {"preconditions", preconditions}});
-        }
-        return result;
-    }
+    static Json catalog() { return protocol::contract().at("commands"); }
 
     Json execute(const Json& request) {
         if (!request.is_object() || !request.contains("op") || !request["op"].is_string())
@@ -244,7 +163,8 @@ struct Commander::Impl {
         const auto& entries = specs();
         const auto spec = std::find_if(entries.begin(), entries.end(), [&](const Spec& candidate) { return candidate.id == operation; });
         if (spec == entries.end()) throw CommandError("unknown_command", "unknown operation: " + operation);
-        validate(request, spec->input, "request");
+        try { protocol::validate(request,spec->input); }
+        catch(const protocol::SchemaError& e) { throw CommandError("invalid_params",e.what()); }
         Context context{request, {}, nullptr};
         Document* live = nullptr;
         if (spec->document) {
@@ -273,6 +193,8 @@ struct Commander::Impl {
         auto result = (this->*(spec->handler))(context);
         if (spec->document)
             result = {{"document", context.document_id}, {"revision", context.document->revision()}, {"data", std::move(result)}};
+        try { protocol::validate(result,spec->output); }
+        catch(const protocol::SchemaError& e) { throw CommandError("internal_error",std::string("invalid command result: ")+e.what()); }
         Json response = {{"ok", true}, {"result", std::move(result)}};
         if (request.contains("id")) response["id"] = request["id"];
         // Publish only after validation AND response construction have succeeded.

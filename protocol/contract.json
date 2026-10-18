@@ -1,0 +1,1129 @@
+{
+  "protocol_version": "1.0",
+  "schema_subset": "AI-CAD structural subset of JSON Schema 2020-12; integer is an integer JSON token; numbers must be finite; identifier is ASCII alphanumeric or ._:-",
+  "$defs": {
+    "Counter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "Identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "format": "identifier"
+    },
+    "Point3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "const": "command_failed"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "invalid_request",
+            "invalid_params",
+            "unknown_command",
+            "document_not_found",
+            "empty_document",
+            "revision_conflict",
+            "invalid_reference",
+            "history_unavailable",
+            "validation_failed",
+            "kernel_error",
+            "io_error",
+            "internal_error",
+            "version_mismatch",
+            "wrong_instance",
+            "wrong_session",
+            "client_not_initialized",
+            "request_conflict",
+            "outcome_unavailable",
+            "outcome_unknown",
+            "client_limit"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "State": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "units": {
+          "const": "mm"
+        },
+        "empty": {
+          "type": "boolean"
+        },
+        "volume": {
+          "type": "number"
+        },
+        "faces": {
+          "$ref": "#/$defs/Counter"
+        },
+        "edges": {
+          "$ref": "#/$defs/Counter"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "revision",
+        "units",
+        "empty"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "properties": {
+            "empty": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "empty": {
+              "const": false
+            }
+          },
+          "required": [
+            "volume",
+            "faces",
+            "edges",
+            "valid"
+          ]
+        }
+      ]
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "kernel": {
+          "const": "smlib"
+        },
+        "gpu_picking": {
+          "type": "boolean"
+        },
+        "persistent_naming": {
+          "type": "boolean"
+        },
+        "native_format": {
+          "const": "smb"
+        }
+      },
+      "required": [
+        "kernel",
+        "gpu_picking",
+        "persistent_naming",
+        "native_format"
+      ],
+      "additionalProperties": false
+    },
+    "Edge": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Point3"
+          }
+        },
+        "length": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "reference",
+        "points",
+        "length"
+      ],
+      "additionalProperties": false
+    },
+    "Triangle": {
+      "type": "object",
+      "properties": {
+        "vertices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Counter"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "face": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "vertices",
+        "face"
+      ],
+      "additionalProperties": false
+    },
+    "Mesh": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Point3"
+          }
+        },
+        "triangles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Triangle"
+          }
+        }
+      },
+      "required": [
+        "points",
+        "triangles"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "integer",
+              "const": 0
+            },
+            "client_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "method": {
+              "const": "hello"
+            }
+          },
+          "required": [
+            "protocol",
+            "request_id",
+            "client_id",
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "type": "string"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Counter"
+            },
+            "client_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "method": {
+              "const": "execute"
+            },
+            "worker_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "session_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "command": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "protocol",
+            "request_id",
+            "client_id",
+            "method",
+            "worker_id",
+            "session_id",
+            "command"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "type": "string"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Counter"
+            },
+            "client_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "method": {
+              "const": "request.status"
+            },
+            "worker_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "session_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "target_request_id": {
+              "$ref": "#/$defs/Counter"
+            }
+          },
+          "required": [
+            "protocol",
+            "request_id",
+            "client_id",
+            "method",
+            "worker_id",
+            "session_id",
+            "target_request_id"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Event": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "document.created",
+            "document.changed"
+          ]
+        },
+        "event_id": {
+          "$ref": "#/$defs/Counter"
+        },
+        "worker_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "document": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "client_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "request_id": {
+          "$ref": "#/$defs/Counter"
+        },
+        "command": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "event_id",
+        "worker_id",
+        "session_id",
+        "document",
+        "revision",
+        "client_id",
+        "request_id",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    "Response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "1.0"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Counter"
+            },
+            "client_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "worker_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "session_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "service_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Identifier"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ok": {
+              "const": true
+            },
+            "result": {},
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Event"
+              }
+            },
+            "replayed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "protocol",
+            "request_id",
+            "client_id",
+            "worker_id",
+            "session_id",
+            "service_id",
+            "ok",
+            "result",
+            "events",
+            "replayed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": "1.0"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Counter"
+            },
+            "client_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "worker_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "session_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "service_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Identifier"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "$ref": "#/$defs/Error"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Event"
+              }
+            },
+            "replayed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "protocol",
+            "request_id",
+            "client_id",
+            "worker_id",
+            "session_id",
+            "service_id",
+            "ok",
+            "error",
+            "events",
+            "replayed"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HelloResult": {
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "deduplication": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "const": "worker"
+            },
+            "max_entries": {
+              "$ref": "#/$defs/Counter"
+            },
+            "max_bytes": {
+              "$ref": "#/$defs/Counter"
+            },
+            "durable": {
+              "const": false
+            }
+          },
+          "required": [
+            "scope",
+            "max_entries",
+            "max_bytes",
+            "durable"
+          ],
+          "additionalProperties": false
+        },
+        "mesh_transport": {
+          "const": "json.inline"
+        },
+        "events": {
+          "const": "inline"
+        },
+        "shared_service": {
+          "const": false
+        },
+        "last_request_id": {
+          "$ref": "#/$defs/Counter"
+        }
+      },
+      "required": [
+        "capabilities",
+        "deduplication",
+        "mesh_transport",
+        "events",
+        "shared_service",
+        "last_request_id"
+      ],
+      "additionalProperties": false
+    },
+    "StatusResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "completed"
+            },
+            "response": {
+              "$ref": "#/$defs/Response"
+            }
+          },
+          "required": [
+            "status",
+            "response"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "outcome_unavailable"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "error_kinds": [
+    "invalid_request",
+    "invalid_params",
+    "unknown_command",
+    "document_not_found",
+    "empty_document",
+    "revision_conflict",
+    "invalid_reference",
+    "history_unavailable",
+    "validation_failed",
+    "kernel_error",
+    "io_error",
+    "internal_error",
+    "version_mismatch",
+    "wrong_instance",
+    "wrong_session",
+    "client_not_initialized",
+    "request_conflict",
+    "outcome_unavailable",
+    "outcome_unknown",
+    "client_limit"
+  ],
+  "effects": [
+    "query",
+    "session_write",
+    "document_write",
+    "external_write"
+  ],
+  "commands": [
+    {
+      "effect": "query",
+      "id": "capabilities",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "op": {
+            "const": "capabilities",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "$ref": "#/$defs/Capabilities"
+      },
+      "preconditions": []
+    },
+    {
+      "effect": "query",
+      "id": "commands.list",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "op": {
+            "const": "commands.list",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "preconditions": []
+    },
+    {
+      "effect": "session_write",
+      "id": "document.create",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "op": {
+            "const": "document.create",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "units": {
+            "const": "mm"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "volume": {
+            "type": "number"
+          },
+          "faces": {
+            "$ref": "#/$defs/Counter"
+          },
+          "edges": {
+            "$ref": "#/$defs/Counter"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "units",
+          "empty"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": []
+    },
+    {
+      "effect": "query",
+      "id": "document.state",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "document.state",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists"
+      ]
+    },
+    {
+      "effect": "document_write",
+      "id": "model.box",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "model.box",
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "size": {
+            "description": "Dimensions in mm",
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 1000000.0,
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "revision",
+          "size",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
+      ]
+    },
+    {
+      "effect": "document_write",
+      "id": "model.fillet",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "edge": {
+            "description": "Opaque current-revision edge reference",
+            "type": "string"
+          },
+          "op": {
+            "const": "model.fillet",
+            "type": "string"
+          },
+          "radius": {
+            "description": "Radius in mm",
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "revision",
+          "edge",
+          "radius",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "nonempty_body",
+        "current_revision"
+      ]
+    },
+    {
+      "effect": "document_write",
+      "id": "document.undo",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "document.undo",
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "revision",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision",
+        "undo_available"
+      ]
+    },
+    {
+      "effect": "document_write",
+      "id": "document.redo",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "document.redo",
+            "type": "string"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "revision",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision",
+        "redo_available"
+      ]
+    },
+    {
+      "effect": "query",
+      "id": "topology.edges",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "topology.edges",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Edge"
+            }
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "nonempty_body"
+      ]
+    },
+    {
+      "effect": "query",
+      "id": "render.mesh",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "render.mesh",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/Mesh"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "nonempty_body"
+      ]
+    },
+    {
+      "effect": "external_write",
+      "id": "export.native",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "op": {
+            "const": "export.native",
+            "type": "string"
+          },
+          "path": {
+            "description": "Local native .smb output path; parent must exist; no NUL",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "document",
+          "path",
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "format": {
+                "const": "smb"
+              }
+            },
+            "required": [
+              "path",
+              "format"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "nonempty_body"
+      ]
+    }
+  ]
+}

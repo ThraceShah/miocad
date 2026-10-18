@@ -8,7 +8,7 @@ CLI 与 MCP 使用同一命令协议，没有专用 LLM 或特定 Agent 依赖�
 
 默认共享 CAD 服务，Agent/MCP/CLI、桌面 GUI 和 WebUI 为平级入口；C++ 核心抽取 Commander，
 对外服务及客户端统一使用 Rust，桌面/Web 采用 egui / eframe，视口采用 wgpu。
-Python 仅保留为内部脚本和测试工具。**P1 Commander 抽取已完成**；Rust 对外组件、共享服务及 GUI 尚未实现，下方仍使用现有 Python 入口。
+Python 仅保留为内部脚本和测试工具。**P1 Commander 与 P2 协议/Rust 客户端已完成**；常驻共享服务、Rust MCP/CLI 产品入口及 GUI 尚未实现，旧入口仍使用 Python。
 详见 [架构决策](docs/architecture.md) 和 [分阶段实施计划](docs/implementation-plan.md)。
 
 ## 当前状态
@@ -16,7 +16,8 @@ Python 仅保留为内部脚本和测试工具。**P1 Commander 抽取已完成*
 已完成：官方 SMLib 调查、固定版本、原版内核独立编译、能力探针、九模块 MVP 架构，
 以及可运行的 Box → 截图 → CPU 像素拾边 → Fillet → 有效性检查 → 结果图 → SMB 示例。
 支持独立文档、修改失败回滚、Undo/Redo、过期引用拒绝，以及本地 CLI / MCP 接入。
-新增可独立链接的 C++ Commander、核心命令发现与分类错误；worker 仅处理 JSONL 收发。
+新增独立 C++ Commander、核心命令发现与分类错误；版本化 JSONL 端点提供握手、上下文与防重放。
+Rust 客户端可直接调用同一核心，具有强类型标识、事件和未知执行结果处理。
 
 **后续工作**：GPU Picking、跨编辑 Persistent Naming、磁盘文档版本恢复。
 STEP 导出不再属于项目要求；不引入 OCCT 备选内核。当前支持 SMLib 原生 `.smb` 导出。
@@ -25,7 +26,9 @@ Boolean 已在原版内核探针验证，尚未暴露为文档命令。
 
 ## 构建与测试
 
-需要 Git、CMake ≥ 3.20、Ninja、C++17 编译器和 Python ≥ 3.10。Python 仅使用标准库。
+需要 Git、CMake ≥ 3.20、Ninja、C++17 编译器、Rust 1.90.0 和 Python ≥ 3.10。Python 内部测试仅用标准库。
+Rust toolchain 与 Cargo.lock 已固定；CMake 默认将 Rust workspace 测试纳入 CTest。
+仅构建 C++ 时可设 CAD_ENABLE_RUST_TESTS=OFF，但不能据此宣称 P2 完整验收通过。
 不需要显示服务器、GPU、OpenUSD、Python CAD 包或 Agent 账号。
 本机验证 Linux x86_64 / GCC 15.2；其他平台未验证。
 
@@ -41,6 +44,19 @@ python3 examples/box_fillet.py
 结果位于 `artifacts/demo.json`、PNG 图和 `artifacts/box-fillet.smb`。
 示例使用一个可见 edge-ID 像素进行确定性自动选择；没有运行 VLM 推理。
 已有 VLM 的 Agent 可读取 shaded 图，提供自己的像素坐标调用 `render.pick`。
+
+## Rust 客户端示例（P2）
+
+```sh
+cargo run -p cad-client --example box_fillet --locked -- build/cad-server
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all --check
+```
+
+若 cargo 不在 PATH，可使用 `$HOME/.cargo/bin/cargo`。示例直接启动独立 C++ worker，完成
+Box、Fillet、查询并输出实例、模型和事件，不启动 Python。这是开发示例，默认共享服务属于 P3。
+协议来源见 [contract.json](protocol/contract.json)，版本、去重和断连语义见 [P2 协议](protocol/README.md)。
 
 ## 运行服务 / CLI
 
@@ -109,6 +125,8 @@ python3 /absolute/path/ai-cad/modules/cad-mcp/server.py
 - [共享服务、Commander 与 Rust/egui 架构决策](docs/architecture.md)
 - [改造实施计划与验收门槛](docs/implementation-plan.md)
 - [Commander 原生接口与事务边界](modules/cad-commander/README.md)
+- [P2 中性协议与 Rust 调用语义](protocol/README.md)
+- [Rust 异步客户端](crates/cad-client/README.md)
 - [协议和失败语义](docs/protocol.md)
 - [Agent 使用指南](modules/cad-skills/GUIDE.md)
 - [验证结果与已知限制](docs/validation.md)

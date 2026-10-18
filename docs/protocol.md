@@ -1,6 +1,7 @@
-# 命令协议 v0.1
+# 命令协议：旧入口兼容与 P2 基线
 
-本地 UTF-8 JSONL。`id` 可选，C++ 服务会原样回显。
+本节描述旧版 op 请求；P2 新封装版本为 1.0，详见 [中性协议与重试语义](../protocol/README.md)。
+旧入口继续使用本地 UTF-8 JSONL。`id` 可选，C++ 服务会原样回显。
 成功：`{"ok":true,"result":...}`；失败：`{"ok":false,"error":{"code":"command_failed","message":"..."}}`。
 P1 保持错误 code 为 command_failed，新增 error.kind 分类；旧客户端可继续只检查 ok/code。
 kind 包括 invalid_request、invalid_params、unknown_command、document_not_found、empty_document、
@@ -50,6 +51,7 @@ MCP 薄桥支持 initialize、notifications/initialized、ping、tools/list、to
 commands.list 的 result 是数组；输出 schema 描述各命令成功响应的 result，不含 ok/id。
 effect 为 query、session_write（创建文档）、document_write 或 external_write（原生文件导出）。
 前置条件为 document_exists、nonempty_body、current_revision、undo_available、redo_available 的组合。
-这是本地核心注册表，暂不提供基于文档动态计算的 enabled 字段，也不是 P2 完整跨语言协议。
+P2 起目录来自 protocol/contract.json；$ref 相对此文件的 $defs 解析。
+暂不提供基于文档动态计算的 enabled 字段。
 当前 Python 的 render.snapshot/pick 不在核心目录中，MCP 可透传 commands.list。
 未知请求字段仍允许，原有 op、mm 单位、实体 token 和成功结果布局不变。

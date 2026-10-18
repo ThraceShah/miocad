@@ -105,3 +105,49 @@ Commander 场景包括：注册目录完整性；真实 SMLib Box/Fillet/mesh/Un
 继续生成 shaded/face-id/edge-id PNG 和 artifacts/box-fillet.smb。
 第三方内核源码未修改。仅新增核心命令目录与 error.kind，保留既有成功响应、错误 code 和原有入口。
 尚未实施 P2 Rust/协议生成、P3 共享服务或 GUI；Python 产品入口与 CPU 预览仍待 P4 迁移。
+
+## P2：中性协议与异步 Rust 客户端
+
+基线：P1 的四组 CTest。先新增版本化 wire 验收，旧 worker 在 hello 上四个测试全部失败，
+随后实现中性契约、版本端点和 Rust 客户端。过程中的 DTO 可选字段 null 往返问题由共享样例发现并修复。
+
+工具链：Rust/Cargo 1.90.0，固定 rust-toolchain.toml 与 Cargo.lock。
+契约来源：protocol/contract.json；C++ 使用 CMake 生成的嵌入头，Rust 使用 include_str!，
+不另存手工维护的第二份 schema。Rust DTO 采用测试校核，没有引入代码生成器。
+
+最终验证：
+
+```sh
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all --check
+cargo run -p cad-client --example box_fillet --locked -- build/cad-server
+```
+
+CTest **7/7 通过**（约 1.5 秒），Clippy/格式检查通过：
+
+1. kernel_capabilities：原有未修改 SMLib 探针。
+2. commander_contract：P1 八个直接契约场景继续通过。
+3. service_transactions：旧 JSONL/Python 产品入口回归。
+4. access_preview_mcp：原有 MCP/CLI/CPU 预览回归。
+5. wire_contract：四个 Python 内部验收，真实 worker 的握手/版本/上下文、Box/Fillet/事件/revision、
+   重放不重复执行、请求冲突、状态查询、缓存淘汰/重新 hello 不重置高水位。
+6. protocol_schema_contract：C++ 跑 32 个共用样例，核对嵌入契约与磁盘一致并拒绝非有限数。
+7. rust_workspace：九个 Rust 集成测试，包含四个协议/类型测试、两个真实 worker 工作流测试、
+   三个传输故障/取消/握手高水位测试。
+
+Rust 验收包括全部核心命令的类型覆盖、错误枚举一致、共用样例、有限 f64 位级 JSON 往返，
+实际 Box/Fillet/mesh/Undo/Redo/结果查询、非法输入不改文档、请求缓存重放、版本不匹配拒绝，
+以及 EOF/超时/畸形响应/关联错误/等待 future 被取消后不自动重发。
+
+数值回归曾以体积 997.8539818196981 复现默认 Rust JSON 解析后相差 1 ULP；
+启用 serde_json float_roundtrip 后，包含该值、极大值、极小正常数和 subnormal 的位级测试通过。
+这校核传输数值，不宣称内核不同运行间的积分结果在位级完全相同。
+Rust 示例实际输出 valid=true、faces=7、edges=15，volume 约 997.853981819698 mm³，revision=2；
+示例直接调用 C++，无需 Python 运行时。第三方内核源码未修改。
+
+范围边界：本轮仍为独立 worker 与响应内事件，没有共享 daemon、attach、事件广播或实际重连。
+service_id 当前为 null，去重仅限内存中的同一 worker；旧版本 op 格式不提供去重保证。
+缓存淘汰后保留高水位并拒绝再执行，结果不确定时必须查状态/核对文档，不保证跨崩溃 exactly-once。
+旧 Python MCP/CLI 与 CPU 渲染尚待 P4 替换；未新增 Web/GUI、GPU、STEP 或 OCCT。

@@ -4,3 +4,9 @@
 - `third_party/json`: nlohmann/json v3.12.0, unmodified single header, MIT, full notice in LICENSE.MIT (used by the service, not the kernel probe).
 
 This project has not selected its own distribution license yet. Do not infer that the third-party licenses license the original project code. Include applicable notices when distributing binaries.
+
+
+Rust P2 dependencies are locked in Cargo.lock: serde 1.0.229 and serde_json 1.0.154 (MIT OR Apache-2.0),
+Tokio 1.53.3 (MIT), plus their transitive dependencies. Crate license metadata was checked locally.
+The lockfile is the version inventory; preserve the applicable crate notices when packaging Rust binaries.
+Rust 1.90.0 is the pinned development toolchain, not an application runtime dependency.

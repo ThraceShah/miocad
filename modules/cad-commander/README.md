@@ -25,11 +25,10 @@ else {
 ## 命令目录与错误
 
 - `commands()` 返回本实例支持的核心命令描述；`execute({"op":"commands.list"})` 返回同一目录。
-- 目录和处理器位于同一个注册表，包含 ID、输入/输出 schema、effect 和前置条件。
+- 目录由 protocol/contract.json 提供；C++ 注册处理器并核对匹配，包含 ID、输入/输出 schema、effect 和前置条件。
 - `effect`：query、session_write、document_write、external_write；原生导出不改变文档 revision。
-- 输入校验支持注册表当前使用的 type、const、required、properties、items、数组长度和数值范围；
-  不是通用 JSON Schema 实现。输出 schema 描述 result，不包含外层 ok/id。
-- 当前 schema 仍是 C++ 注册表数据，尚未成为 P2 的中性跨语言协议或生成器。
+- P2 将结构校验移到 cad-contract，C++ 和 Rust 共用中性契约，并校验成功输出后才发布文档。
+- Rust DTO 以共享样例和真实 worker 测试校核，不维护第二份业务规则；没有代码生成器。
 - `render.snapshot/pick` 是现有 Python 接入层扩展，不是本库的核心命令；P4 再迁移产品渲染路径。
 
 保持既有 `ok/result/error`、文档响应与可选 request id 回显。
