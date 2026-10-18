@@ -19,4 +19,21 @@ document.querySelector('#unlock').addEventListener('submit',async event=>{
   try {const response=await api('login',{code:document.querySelector('#code').value});document.querySelector('#code').value='';if(!response.ok)throw new Error(await response.text());await open();}catch(e){error.textContent=e.message;}finally{button.disabled=false;}
 });
 document.querySelector('#lock').addEventListener('click',async()=>{await api('logout');location.reload();});
-try { const response=await api('hello');if(response.ok)await open(); } catch { error.textContent='Service unavailable. Refresh when the connection returns.'; }
+// Discover the explicit server policy before displaying any credential form.
+try {
+  const policy=await api('access');
+  if(!policy.ok)throw new Error(await policy.text());
+  const {requires_code}=await policy.json();
+  document.querySelector('#lock').hidden=!requires_code;
+  const response=await api('hello');
+  if(response.ok)await open();
+  else if(!requires_code && response.status===401){
+    const connected=await api('login',{code:''});
+    if(!connected.ok)throw new Error(await connected.text());
+    await open();
+  } else if(requires_code && response.status===401)document.querySelector('#login').style.display='grid';
+  else throw new Error(await response.text());
+} catch(e) {
+  error.textContent=`Connection failed: ${e.message}. Refresh to retry.`;
+  document.querySelector('#login').style.display='grid';
+} finally {document.querySelector('#loading').style.display='none';}

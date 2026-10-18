@@ -54,6 +54,7 @@ pub struct Gateway {
     code: String,
     secure: bool,
     stripped_prefix: bool,
+    trusted_access: bool,
     access: Mutex<Access>,
 }
 fn same_secret(a: &str, b: &str) -> bool {
@@ -76,6 +77,7 @@ impl Gateway {
             session,
             secure: origin.starts_with("https://"),
             stripped_prefix: false,
+            trusted_access: false,
             origin,
             base,
             code,
@@ -88,6 +90,11 @@ impl Gateway {
     }
     pub fn with_stripped_prefix(mut self, stripped: bool) -> Self {
         self.stripped_prefix = stripped;
+        self
+    }
+    /// Explicit deployment policy; never inferred from Host or forwarded headers.
+    pub fn with_trusted_access(mut self, trusted: bool) -> Self {
+        self.trusted_access = trusted;
         self
     }
     fn source(&self, headers: &HeaderMap) -> Result<(), Error> {
@@ -165,6 +172,13 @@ impl Gateway {
 struct Login {
     code: String,
 }
+async fn access_mode(
+    State(g): State<Arc<Gateway>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Error> {
+    g.source(&headers)?;
+    Ok(Json(json!({"requires_code": !g.trusted_access})))
+}
 async fn login(
     State(g): State<Arc<Gateway>>,
     headers: HeaderMap,
@@ -183,7 +197,7 @@ async fn login(
         ));
     }
     access.attempts += 1;
-    if !same_secret(&body.code, &g.code) {
+    if !g.trusted_access && !same_secret(&body.code, &g.code) {
         return Err(UNAUTHORIZED);
     }
     access
@@ -446,6 +460,7 @@ pub fn router(gateway: Gateway, assets: PathBuf) -> Router {
             }),
         )
         .route("/health", get(|| async { "ok" }))
+        .route("/api/access", post(access_mode))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/hello", post(hello))
@@ -492,7 +507,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = match cad_access::Config::parse()? {
         cad_access::Action::Run(c) => c,
         cad_access::Action::Help => {
-            println!("cad-web uses cad-cli connection flags. Environment: HOST(loopback), PORT, BASE_PATH, CAD_WEB_ORIGIN, CAD_WEB_ASSETS. Access code: <runtime-dir>/web-access-code (0600). Browser grants expire after 8h; restart revokes grants. No Python runtime.");
+            println!("cad-web uses cad-cli connection flags. Environment: HOST(loopback), PORT, BASE_PATH, CAD_WEB_ORIGIN, CAD_WEB_ASSETS, CAD_WEB_TRUSTED_ACCESS=1 (explicit credential-free deployment). Access code: <runtime-dir>/web-access-code (0600). Browser grants expire after 8h; restart revokes grants. No Python runtime.");
             return Ok(());
         }
         cad_access::Action::Version => {
@@ -586,13 +601,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let app = router(
         Gateway::new(client.endpoint().clone(), session, origin, base, code)
-            .with_stripped_prefix(std::env::var("CAD_WEB_STRIP_PREFIX").as_deref() == Ok("1")),
+            .with_stripped_prefix(std::env::var("CAD_WEB_STRIP_PREFIX").as_deref() == Ok("1"))
+            .with_trusted_access(std::env::var("CAD_WEB_TRUSTED_ACCESS").as_deref() == Ok("1")),
         assets,
     );
     let listener = tokio::net::TcpListener::bind((host, port)).await?;
     eprintln!(
-        "CAD WebUI listening on {}. Unlock code file: {} (never shared with the portal).",
+        "CAD WebUI listening on {}. Credential-free access: {}. Optional unlock code file: {}.",
         listener.local_addr()?,
+        std::env::var("CAD_WEB_TRUSTED_ACCESS").as_deref() == Ok("1"),
         code_path.display()
     );
     axum::serve(listener, app)

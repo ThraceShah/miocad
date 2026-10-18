@@ -93,6 +93,14 @@ async fn authorized_web_and_agent_share_transactions_with_scoped_files_and_recon
         root.join("web"),
     );
     assert_eq!(
+        post(&app, "access", json!({}), "", ORIGIN).await.1["requires_code"],
+        true
+    );
+    assert_eq!(
+        post(&app, "login", json!({"code":""}), "", ORIGIN).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
         post(&app, "snapshot", json!({}), "", ORIGIN).await.0,
         StatusCode::UNAUTHORIZED
     );
@@ -312,7 +320,7 @@ async fn authorized_web_and_agent_share_transactions_with_scoped_files_and_recon
         .unwrap();
     assert_eq!(home.status(), StatusCode::OK);
     // Rate limiting includes failed unlocks and never bypasses the origin check.
-    for _ in 0..10 {
+    for _ in 0..9 {
         assert_eq!(
             post(&app, "login", json!({"code":"wrong"}), "", ORIGIN)
                 .await
@@ -347,6 +355,64 @@ async fn authorized_web_and_agent_share_transactions_with_scoped_files_and_recon
     .unwrap();
     assert!(html.contains("<base href=\"/apps/miocad/\">"));
     assert!(!html.contains(CODE));
+    // Credential-free mode is opt-in and still issues scoped, revocable browser grants.
+    let trusted = router(
+        Gateway::new(
+            peer.endpoint().clone(),
+            peer.context().session_id.as_str().into(),
+            ORIGIN.into(),
+            BASE.into(),
+            CODE.into(),
+        )
+        .with_trusted_access(true),
+        root.join("web"),
+    );
+    for origin in ["", "https://evil.example", "null"] {
+        for path in ["access", "login"] {
+            assert_eq!(
+                post(&trusted, path, json!({"code":""}), "", origin).await.0,
+                StatusCode::FORBIDDEN
+            );
+        }
+    }
+    assert_eq!(
+        post(&trusted, "access", json!({}), "", ORIGIN).await.1["requires_code"],
+        false
+    );
+    assert_eq!(
+        post(&trusted, "snapshot", json!({}), "", ORIGIN).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, _, trusted_cookie, _) =
+        post(&trusted, "login", json!({"code":""}), "", ORIGIN).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(trusted_cookie.contains("HttpOnly; SameSite=Strict; Path=/apps/miocad/"));
+    assert!(trusted_cookie.contains("Secure"));
+    let trusted_cookie = trusted_cookie.split(';').next().unwrap();
+    let (_, trusted_hello, _, _) = post(&trusted, "hello", json!({}), trusted_cookie, ORIGIN).await;
+    let trusted_context = cad_protocol::Response::parse(trusted_hello)
+        .unwrap()
+        .context;
+    assert_eq!(trusted_context.session_id, context.session_id);
+    assert_ne!(trusted_context.client_id, context.client_id);
+    assert_eq!(
+        post(&trusted, "snapshot", json!({}), trusted_cookie, ORIGIN)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(&trusted, "logout", json!({}), trusted_cookie, ORIGIN)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(&trusted, "hello", json!({}), trusted_cookie, ORIGIN)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
     peer.shutdown().await.unwrap();
     let _ = std::fs::remove_dir_all(options.runtime_dir);
 }

@@ -448,3 +448,15 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 服务端集中渲染需要网络往返，Web 没有直接 WebGPU 几何路径；大网格/更多设备/OS 仍须测量。
 没有 Persistent Naming、磁盘历史恢复、多 body/特征树或多人协作系统，原文档拥有者崩溃仍丢失内存文档。
 所有改动本地 Git 提交，不推送；只保留生产持久服务，测试窗口/临时服务关闭。
+
+## 2026-10-19：Tailscale WebUI 免访问码
+
+当前发布脚本显式设置 `CAD_WEB_TRUSTED_ACCESS=1`；其余启动默认仍要求访问码。共享 `/api/access` 模式查询与登录签发保留来源检查，可信部署自动建立原有范围的浏览器授权，隐藏输入页与 Lock 按钮。原访问码文件保留，可通过移除变量并重启 Web 网关恢复。
+
+验证通过：
+- Rust 网关集成测试：默认空码拒绝、正确码登录、免码模式登录、缺失/恶意 Origin 拒绝、无 Cookie 请求拒绝、独立客户端、Cookie 属性和注销撤销；既有事务/回滚/预览/版本冲突用例继续通过。
+- `cargo clippy -p cad-web --all-targets --locked -- -D warnings`、`cargo fmt --all --check`、JS 语法与 diff 检查。
+- `CAD_BIN=target/release node tests/web_smoke.cjs`：默认访问码模式真实浏览器建模、预览、Fillet、共享视图、失联恢复和锁定回归通过（独立临时文档服务）。
+- `node tests/web_trusted.cjs`：实际 Tailscale HTTPS 浏览器自动进入、刷新、嵌套路径、资源、WASM、wgpu 帧、Secure/HttpOnly/SameSite Cookie 和跨源拒绝通过，无页面异常；全程未输入访问码或修改线上文档。
+- 部署前后共享文档快照完全相同：两个文档均 revision=2 / valid=true，事件 cursor=6；worker/session 身份不变；原文档拥有者 PID 仍为 673288。
+- 三项 systemd 服务 active；门户 HTTPS 200，miocad online=true。证据保存在 `artifacts/trusted-web/`（Git 忽略），含 workspace.png、browser.json 和前后快照。

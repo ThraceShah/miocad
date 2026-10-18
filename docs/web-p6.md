@@ -98,3 +98,8 @@ CAD_PLAYWRIGHT="$PWD/artifacts/browser-tools/node_modules/playwright" node tests
 
 P7 后续更新：Web 现改用服务端 wgpu/CPU Frame，Worker 处理异步 HTTP 和有界压缩平面；不再在浏览器另算 CPU ID 图。
 新增独立渲染 relay，升级不重启原文档拥有者。本文 P6 的历史实现说明保留，当前架构以 [P7 说明](viewport-p7.md) 为准。
+
+
+### 2026-10-19：Tailscale 部署免访问码
+
+`CAD_WEB_TRUSTED_ACCESS=1` 显式启用免访问码模式；发布脚本为当前 Tailscale 环境设置此变量。前端从同源 `/api/access` 获取模式后自动建立浏览器授权，不显示输入框和 Lock 按钮。普通启动仍默认要求访问码，原文件保留；不根据 Host、IP 或代理请求头自动放行。两种模式共用 Origin / X-CAD-Web 校验、HttpOnly / Secure / SameSite Cookie、8 小时有效期、页面身份、服务和会话绑定、授权数量及频率限制。撤销此变量并重启 Web 网关即可恢复访问码模式，无需重启文档服务。
