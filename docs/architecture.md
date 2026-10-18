@@ -217,3 +217,10 @@ Web 与 CAD daemon 使用独立持久进程；网关 attach-only，网页重部�
 界面不再各自重算用于精确选择的 ID 图。Web Worker 为异步视口传输宿主，浏览器不承担 SMLib 或另一套 GPU 几何状态。
 保留 CPU fallback 与真实适配器报告。渲染入口可作为附着现有 worker 的独立 relay 升级，原文档/历史/请求身份不变。
 缓存、压缩协议、版本/视口验证和限制见 [P7 说明](viewport-p7.md)。
+
+
+### 2026-10-19：Web 连续交互视口修正
+
+P7 的 Web 主视口实际展示服务端逐帧返回的位图；相机改变立即隐藏过期帧，造成拖动时白屏，且严格 epoch 校验使连续拖动中的返回帧被丢弃。Web 现改用 `cad-ui-egui::local_view` 的 wgpu raster 管线直接绘制已获取的同一份 `Scene.mesh / edges`，采用深度缓冲和可见边；网格上传按场景身份缓存，相机输入只更新 48 字节 uniform。浏览器优先 WebGPU，缺少适配器时通过 wgpu 回退 WebGL2。没有 GPU 读回或网络往返参与相机绘制。
+
+相机静止 150ms 后再请求服务端 Frame，用于原有 ID 拾取、截图和确认前校验。服务端仍提供 headless GPU/CPU 渲染；绘制不依赖 Frame 是否到达，过期 ID 帧仍不可用于选择或确认。修改仅作用于 Web 启用的本地 GPU 绘制，桌面当前默认显示路径继续保留。样式、相机投影及拓扑 reference 共用协议；客户端三角化显示并非精确 B-Rep 求交。

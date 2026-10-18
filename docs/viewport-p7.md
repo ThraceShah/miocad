@@ -96,3 +96,10 @@ scripts/publish-web.sh
 
 详细结果见 validation.md 和 artifacts/p7、p7-gui、p7-web。仍没有 Persistent Naming、磁盘历史恢复、多 body/特征树或多人协作系统，
 也没有 STEP/OCCT 或 Python 产品运行时。
+
+
+### Web 交互性能修正（2026-10-19）
+
+原 Web 的 wgpu 标签指服务端 compute 渲染，浏览器只有 egui 纹理显示。现在浏览器在自己的 GPU 上对缓存三角网格和边进行 depth-tested rasterization，WebGPU 优先、WebGL2 回退。旋转/平移/缩放逐输入重绘本地相机，不清空等待远程位图。相机静止 150ms 后合并一次服务端视图请求；返回帧仍须满足 epoch、相机、尺寸和文档版本才能用于拾取与确认。原来的共享 Frame/Agent 截图协议保持有效，但交互显示不再被网络帧阻塞。
+
+浏览器回归：`CAD_PLAYWRIGHT=<playwright目录> node tests/web_orbit.cjs`，`CAD_TEST_GPU=webgl` 测回退；可用 `CAD_WEB_URL` 指向本地只读测试网关。测试模拟 48 次触屏移动，阻塞 `/api/view`，验证多张中途截图均有模型且内容变化、无页面异常、WebGPU 确有本地队列提交；记录刷新回调时间，不将其冒称所有设备的实测 GPU FPS。浏览器图形启动参数仅属于测试工具，不要求用户配置浏览器。

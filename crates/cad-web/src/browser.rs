@@ -235,12 +235,19 @@ struct Browser {
     worker: web_sys::Worker,
     rendering: Rc<Cell<bool>>,
     scheduled: u64,
+    observed_epoch: u64,
+    changed_at: f64,
     _message: Closure<dyn FnMut(web_sys::MessageEvent)>,
     _error: Closure<dyn FnMut(web_sys::Event)>,
 }
 impl Browser {
     fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, JsValue> {
         Workspace::theme(&cc.egui_ctx);
+        let gpu = cc
+            .wgpu_render_state
+            .as_ref()
+            .ok_or_else(|| JsValue::from_str("Client GPU unavailable"))?;
+        cad_ui_egui::local_view::install(gpu);
         let (sender, receiver) = futures_channel::mpsc::unbounded();
         let events = Rc::new(RefCell::new(VecDeque::new()));
         wasm_bindgen_futures::spawn_local(run(receiver, events.clone(), cc.egui_ctx.clone()));
@@ -318,6 +325,7 @@ impl Browser {
         worker.set_onerror(Some(error.as_ref().unchecked_ref()));
         let mut workspace = Workspace::default();
         workspace.browser_downloads = true;
+        workspace.local_backend = Some(format!("{:?}", gpu.adapter.get_info().backend));
         Ok(Self {
             workspace,
             actions: sender,
@@ -325,6 +333,8 @@ impl Browser {
             worker,
             rendering,
             scheduled: u64::MAX,
+            observed_epoch: u64::MAX,
+            changed_at: 0.,
             _message: message,
             _error: error,
         })
@@ -376,7 +386,18 @@ impl eframe::App for Browser {
         for action in self.workspace.show(ctx) {
             let _ = self.actions.unbounded_send(action);
         }
-        if !self.rendering.get() && self.scheduled != self.workspace.model.view_epoch {
+        // Display is entirely local. Request an authoritative picking/capture frame only
+        // after the camera settles; never queue network work at pointer-event frequency.
+        let now = ctx.input(|i| i.time);
+        if self.observed_epoch != self.workspace.model.view_epoch {
+            self.observed_epoch = self.workspace.model.view_epoch;
+            self.changed_at = now;
+        }
+        let settled = now - self.changed_at >= 0.15;
+        if !settled {
+            ctx.request_repaint_after(Duration::from_millis(160));
+        }
+        if settled && !self.rendering.get() && self.scheduled != self.workspace.model.view_epoch {
             self.scheduled = self.workspace.model.view_epoch;
             if let Some(request) = self.workspace.render_request() {
                 match serde_json::to_string(&request)
@@ -431,7 +452,10 @@ pub async fn start_web() -> Result<(), JsValue> {
     eframe::WebRunner::new()
         .start(
             canvas,
-            eframe::WebOptions::default(),
+            eframe::WebOptions {
+                depth_buffer: 24,
+                ..Default::default()
+            },
             Box::new(|cc| {
                 Browser::new(cc)
                     .map(|app| Box::new(app) as Box<dyn eframe::App>)

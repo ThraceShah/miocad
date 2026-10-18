@@ -132,7 +132,7 @@ scripts/publish-web.sh
 ```
 
 Web 网关和共享 CAD daemon 使用独立 systemd unit；重启网页不销毁共享文档。
-CAD daemon 自身重启仍丢失内存文档。Web 通过 WebGL2 显示服务端 wgpu 光照/ID 帧；不要求浏览器支持 WebGPU。
+CAD daemon 自身重启仍丢失内存文档。Web 通过客户端 wgpu 渲染缓存网格，优先 WebGPU、不可用时回退 WebGL2；旋转/平移/缩放不等待网络。停下后同步服务端 ID 帧用于拾取和截图，仍保留版本与相机校验。
 详见 [P6 Web 说明](docs/web-p6.md)。
 
 P7 新增 `render.frames` / `render.capture`，可取得界面所用的同一服务帧；`render.snapshot` 支持相机、revision 与 backend=auto/gpu/cpu。

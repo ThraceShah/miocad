@@ -2,6 +2,7 @@
 mod controller;
 mod model;
 pub use controller::*;
+pub mod local_view;
 mod widgets;
 use cad_protocol::*;
 pub use model::*;

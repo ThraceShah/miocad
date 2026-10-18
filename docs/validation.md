@@ -460,3 +460,22 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 - `node tests/web_trusted.cjs`：实际 Tailscale HTTPS 浏览器自动进入、刷新、嵌套路径、资源、WASM、wgpu 帧、Secure/HttpOnly/SameSite Cookie 和跨源拒绝通过，无页面异常；全程未输入访问码或修改线上文档。
 - 部署前后共享文档快照完全相同：两个文档均 revision=2 / valid=true，事件 cursor=6；worker/session 身份不变；原文档拥有者 PID 仍为 673288。
 - 三项 systemd 服务 active；门户 HTTPS 200，miocad online=true。证据保存在 `artifacts/trusted-web/`（Git 忽略），含 workspace.png、browser.json 和前后快照。
+
+## 2026-10-19：Web 触屏旋转不再等待远程位图
+
+定位：旧 Web 使用服务端 wgpu compute 的位图；每次输入改变 view_epoch 后立即隐藏纹理，连续手势返回的帧又因相机不一致被丢弃，造成白底与 Updating viewport。此处标签并不代表浏览器在执行 WebGPU 三维 raster。
+
+实现：Web eframe 切换 wgpu，优先 WebGPU、无可用 WebGPU 适配器时回退 WebGL2。共享 local_view 模块用 depth-tested 三角面/边管线绘制同一份 Scene，按 Arc 场景身份缓存 GPU 网格，相机只更新 48 字节 uniform。手势显示不依赖服务端 Frame；相机静止 150ms 后请求一帧用于原有拾取/截图/确认校验，不放松相机、epoch、revision 检查。静止手指的零位移不再推进 epoch。
+
+验证通过：
+- `cargo test --workspace --locked` 全部通过；含新增相机 pivot/depth 范围验证和既有预览、版本冲突、帧过期拒绝、共享服务事务测试。Cargo 报原有两份 box_fillet 示例同名输出警告，不影响测试。
+- native 和 wasm32 的相关 Clippy（`-D warnings`）、fmt、JS 语法、diff 检查通过。
+- 默认访问码模式完整浏览器建模回归通过：Box/Fillet 预览、确认、共享截图、恢复与锁定，测试使用独立临时服务。
+- 新增 `tests/web_orbit.cjs`：真实 HTTPS 模拟 48 次触屏移动，故意阻塞 `/api/view`；所有中途采样均有模型，五种不同图像，未收到远程新帧也能旋转，无页面异常。WebGPU / WebGL2 路径都通过。
+- 实际 HTTPS WebGPU：约 2994ms 内客户端 GPU 队列提交 149 次；刷新回调间隔中位数 / P95 均约 16.7ms。WebGL2 刷新回调间隔中位数约 16.7ms、P95 约 16.8ms。它们是本测试环境数据，回调间隔不是跨设备 GPU FPS 保证。手势期间至停下后的远程视图请求仅一次，且被测试阻塞。
+- `tests/web_trusted.cjs` 实际 HTTPS 自动进入、刷新、嵌套路径、资源/WASM、会话 Cookie 回归通过。
+- 发布前后生产快照完全相同：两个文档 revision 分别 3、2，均 valid=true，cursor=7，worker/session 身份未变，原文档拥有者 PID 仍为 673288。只更新 Web 和独立渲染 relay，三项持久服务 active；门户 HTTPS 200，miocad online=true。
+
+证据：`artifacts/orbit-https/`、`artifacts/orbit-https-webgl/`、`artifacts/orbit-https-auth/` 及 `artifacts/orbit/{before,after}-deploy.json`（均 Git 忽略）。本地测试网关和临时 Xvfb 已关闭。
+
+测试环境问题：Chromium 141 在原 SwiftShader/ANGLE 参数下连独立 WebGPU 清屏程序也会丢失设备并报告 external Instance。WebGPU 测试改用测试进程自己的 Vulkan 图形参数后通过；WebGL2 软件回退也单独验证。没有修改系统浏览器、全局网络、第三方源码，亦没有加入未经证实的应用实例生命周期补丁。客户端显示与服务端截图依照同一场景/投影，但 raster 抗锯齿及边线宽度不保证逐像素相同；精确 B-Rep 和拓扑引用仍由服务端内核负责。

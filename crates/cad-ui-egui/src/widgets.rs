@@ -6,6 +6,7 @@ const CANVAS: Color32 = Color32::from_rgb(242, 245, 248);
 pub struct Workspace {
     pub model: Model,
     pub browser_downloads: bool,
+    pub local_backend: Option<String>,
     pub service: String,
     pub session: String,
     pub cursor: u64,
@@ -23,6 +24,7 @@ impl Default for Workspace {
         Self {
             model: Model::default(),
             browser_downloads: false,
+            local_backend: None,
             service: String::new(),
             session: String::new(),
             cursor: 0,
@@ -603,11 +605,54 @@ impl Workspace {
             self.viewport_size = size;
             self.model.view_changed();
         }
+        if response.dragged() && ctx.input(|i| i.pointer.delta() != Vec2::ZERO) {
+            let delta = ctx.input(|i| i.pointer.delta());
+            if ctx.input(|i| i.modifiers.shift)
+                || response.dragged_by(egui::PointerButton::Secondary)
+            {
+                self.model.camera.pan[0] = (self.model.camera.pan[0]
+                    + delta.x as f64 / rect.width() as f64)
+                    .clamp(-0.6, 0.6);
+                self.model.camera.pan[1] = (self.model.camera.pan[1]
+                    + delta.y as f64 / rect.height() as f64)
+                    .clamp(-0.6, 0.6);
+            } else {
+                self.model.camera.yaw -= delta.x as f64 * 0.008;
+                self.model.camera.pitch =
+                    (self.model.camera.pitch + delta.y as f64 * 0.008).clamp(-1.4, 1.4);
+            }
+            self.model.view_changed();
+        }
+        if response.hovered() {
+            let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
+            if scroll.abs() > 0.01 {
+                self.model.camera.zoom =
+                    (self.model.camera.zoom * (scroll as f64 * 0.002).exp()).clamp(0.35, 3.5);
+                self.model.view_changed();
+            }
+        }
+        if response.double_clicked() {
+            self.model.camera = cad_render::Camera::default();
+            self.model.view_changed();
+        }
         let has_scene = self
             .model
             .display_scene()
             .is_some_and(|(s, _)| s.scene.mesh.is_some());
-        if has_scene {
+        if has_scene && self.local_backend.is_some() {
+            if let Some((bound, _)) = self.model.display_scene() {
+                painter.rect_filled(rect, 0., CANVAS);
+                painter.add(
+                    crate::local_view::View {
+                        scene: bound.scene.clone(),
+                        camera: self.model.camera,
+                        selected: self.model.selection.as_ref().map(|s| s.reference.clone()),
+                        size: self.viewport_size,
+                    }
+                    .callback(rect),
+                );
+            }
+        } else if has_scene {
             if let Some(texture) = self.texture.as_ref().filter(|_| self.frame_current()) {
                 painter.image(
                     texture.id(),
@@ -640,7 +685,7 @@ impl Workspace {
                 Color32::from_rgb(107, 126, 141),
             );
         }
-        if has_scene && !self.frame_current() {
+        if has_scene && self.local_backend.is_none() && !self.frame_current() {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -648,36 +693,6 @@ impl Workspace {
                 egui::FontId::proportional(16.),
                 Color32::from_rgb(97, 117, 133),
             );
-        }
-        if response.dragged() {
-            let delta = ctx.input(|i| i.pointer.delta());
-            if ctx.input(|i| i.modifiers.shift)
-                || response.dragged_by(egui::PointerButton::Secondary)
-            {
-                self.model.camera.pan[0] = (self.model.camera.pan[0]
-                    + delta.x as f64 / rect.width() as f64)
-                    .clamp(-0.6, 0.6);
-                self.model.camera.pan[1] = (self.model.camera.pan[1]
-                    + delta.y as f64 / rect.height() as f64)
-                    .clamp(-0.6, 0.6);
-            } else {
-                self.model.camera.yaw -= delta.x as f64 * 0.008;
-                self.model.camera.pitch =
-                    (self.model.camera.pitch + delta.y as f64 * 0.008).clamp(-1.4, 1.4);
-            }
-            self.model.view_changed();
-        }
-        if response.hovered() {
-            let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
-            if scroll.abs() > 0.01 {
-                self.model.camera.zoom =
-                    (self.model.camera.zoom * (scroll as f64 * 0.002).exp()).clamp(0.35, 3.5);
-                self.model.view_changed();
-            }
-        }
-        if response.double_clicked() {
-            self.model.camera = cad_render::Camera::default();
-            self.model.view_changed();
         }
         let frame_valid = self.frame_epoch == self.model.view_epoch
             && self.frame_document == self.model.active
@@ -727,19 +742,25 @@ impl Workspace {
             Color32::from_rgb(97, 117, 133),
         );
         painter.text(rect.left_bottom()+Vec2::new(20.,-20.),egui::Align2::LEFT_BOTTOM,if self.model.hover.is_some(){"Visible edge · click to select"}else{"Drag to orbit   ·   Shift/right drag to pan   ·   Scroll to zoom   ·   Double-click to fit"},egui::FontId::proportional(11.),Color32::from_rgb(97,117,133));
-        if let Some(frame) = &self.frame {
+        if self.local_backend.is_some() || self.frame.is_some() {
             painter.text(
                 rect.right_top() + Vec2::new(-20., 22.),
                 egui::Align2::RIGHT_TOP,
-                format!(
-                    "{} · {}",
-                    frame.metadata["backend"].as_str().unwrap_or("unknown"),
-                    frame.metadata["render_id"]
-                        .as_str()
-                        .unwrap_or("")
-                        .get(..8)
-                        .unwrap_or("")
-                ),
+                if let Some(backend) = &self.local_backend {
+                    format!("Client GPU · {backend}")
+                } else if let Some(frame) = &self.frame {
+                    format!(
+                        "{} · {}",
+                        frame.metadata["backend"].as_str().unwrap_or("unknown"),
+                        frame.metadata["render_id"]
+                            .as_str()
+                            .unwrap_or("")
+                            .get(..8)
+                            .unwrap_or("")
+                    )
+                } else {
+                    String::new()
+                },
                 egui::FontId::proportional(11.),
                 Color32::from_rgb(97, 117, 133),
             );
