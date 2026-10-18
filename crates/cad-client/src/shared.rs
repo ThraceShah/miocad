@@ -170,6 +170,29 @@ impl SharedClient {
             uncertain: false,
         })
     }
+    /// Follow a changed loopback listener only when service and worker identity are unchanged.
+    /// This supports a rendering relay upgrade, never migration of accepted model requests.
+    pub async fn reconnect(&self, options: &ServiceOptions) -> Result<Self, ClientError> {
+        let endpoint = read_endpoint(&options.runtime_dir.join("endpoint.json"))
+            .unwrap_or_else(|_| self.endpoint.clone());
+        if endpoint.service_id != self.endpoint.service_id {
+            return Err(transport(
+                "wrong_instance: discovered service changed; no request replay",
+            ));
+        }
+        let next = Self::attach(
+            endpoint,
+            self.context.client_id.as_str(),
+            Some(self.context.session_id.as_str()),
+        )
+        .await?;
+        if next.context != self.context {
+            return Err(transport(
+                "wrong_instance: worker changed; no request replay",
+            ));
+        }
+        Ok(next)
+    }
     pub async fn connect_or_start(
         options: &ServiceOptions,
         client: &str,

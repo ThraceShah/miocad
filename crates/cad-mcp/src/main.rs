@@ -99,7 +99,8 @@ impl Mcp {
                     ));
                 }
                 let command = args["command"].clone();
-                let snapshot = command["op"] == "render.snapshot";
+                let snapshot =
+                    command["op"] == "render.snapshot" || command["op"] == "render.capture";
                 let output = self.frontend.command(command).await;
                 let mut content = vec![json!({"type":"text","text":output.to_string()})];
                 if output["ok"] == true && snapshot {

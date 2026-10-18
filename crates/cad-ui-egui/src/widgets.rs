@@ -171,6 +171,18 @@ impl Workspace {
                 if epoch != self.model.view_epoch || self.model.active.as_ref() != Some(&document) {
                     return;
                 }
+                let camera =
+                    serde_json::from_value::<cad_render::Camera>(frame.metadata["camera"].clone())
+                        .ok();
+                if frame.dimensions() != self.viewport_size
+                    || frame.dimensions() != [width, height]
+                    || frame.metadata["document"] != document.as_str()
+                    || frame.metadata["revision"].as_u64() != Some(revision.get())
+                    || camera != Some(self.model.camera)
+                    || (!preview && self.model.current().is_none_or(|d| d.revision != revision))
+                {
+                    return;
+                }
                 let image = egui::ColorImage::from_rgb([width as usize, height as usize], &rgb);
                 if let Some(texture) = &mut self.texture {
                     texture.set(image, egui::TextureOptions::LINEAR);
@@ -186,10 +198,38 @@ impl Workspace {
             }
         }
     }
+    pub fn frame_current(&self) -> bool {
+        self.frame.is_some()
+            && self.frame_epoch == self.model.view_epoch
+            && self.frame_document == self.model.active
+            && self
+                .model
+                .current()
+                .is_some_and(|d| d.revision.get() == self.frame_revision)
+            && self
+                .model
+                .display_scene()
+                .is_some_and(|(_, preview)| preview == self.frame_preview)
+    }
     pub fn render_request(&self) -> Option<ViewRequest> {
         let (bound, preview) = self.model.display_scene()?;
         bound.scene.mesh.as_ref()?;
         Some(ViewRequest {
+            service: self.service.clone(),
+            session: self.session.clone(),
+            preview_operation: if preview {
+                self.model.preview.as_ref().and_then(|p| match &p.command {
+                    Command::Preview { operation, .. } => Some(operation.clone()),
+                    Command::Box { size, .. } => Some(PreviewOperation::Box { size: *size }),
+                    Command::Fillet { edge, radius, .. } => Some(PreviewOperation::Fillet {
+                        edge: edge.clone(),
+                        radius: *radius,
+                    }),
+                    _ => None,
+                })
+            } else {
+                None
+            },
             epoch: self.model.view_epoch,
             bound: bound.clone(),
             preview,
@@ -356,8 +396,9 @@ impl Workspace {
             }
         }
         ui.horizontal(|ui| {
-            let ready =
-                self.model.preview.as_ref().is_some_and(|p| p.ready) && self.model.can_edit();
+            let ready = self.model.preview.as_ref().is_some_and(|p| p.ready)
+                && self.model.can_edit()
+                && self.frame_current();
             if ui
                 .add_enabled(
                     ready,
@@ -494,6 +535,25 @@ impl Workspace {
         });
         ui.add_space(8.);
         egui::CollapsingHeader::new("Connection").show(ui, |ui| {
+            if let Some(frame) = &self.frame {
+                if let Some(id) = frame.metadata["render_id"].as_str() {
+                    ui.label(format!("Renderer: {}", frame.metadata["backend"]));
+                    if let Some(adapter) = frame.metadata.get("adapter") {
+                        ui.label(format!(
+                            "{} / {}",
+                            adapter["name"].as_str().unwrap_or("unknown"),
+                            adapter["device_type"].as_str().unwrap_or("unknown")
+                        ));
+                    }
+                    if ui.button("Copy render ID").clicked() {
+                        ctx.copy_text(id.into());
+                    }
+                    if let Some(reason) = frame.metadata["fallback_reason"].as_str() {
+                        ui.label(reason);
+                    }
+                }
+            }
+
             ui.label(
                 RichText::new(format!(
                     "Service {}",
@@ -548,7 +608,7 @@ impl Workspace {
             .display_scene()
             .is_some_and(|(s, _)| s.scene.mesh.is_some());
         if has_scene {
-            if let Some(texture) = &self.texture {
+            if let Some(texture) = self.texture.as_ref().filter(|_| self.frame_current()) {
                 painter.image(
                     texture.id(),
                     rect,
@@ -578,6 +638,15 @@ impl Workspace {
                 },
                 egui::FontId::proportional(13.),
                 Color32::from_rgb(107, 126, 141),
+            );
+        }
+        if has_scene && !self.frame_current() {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Updating viewport…",
+                egui::FontId::proportional(16.),
+                Color32::from_rgb(97, 117, 133),
             );
         }
         if response.dragged() {
@@ -658,6 +727,23 @@ impl Workspace {
             Color32::from_rgb(97, 117, 133),
         );
         painter.text(rect.left_bottom()+Vec2::new(20.,-20.),egui::Align2::LEFT_BOTTOM,if self.model.hover.is_some(){"Visible edge · click to select"}else{"Drag to orbit   ·   Shift/right drag to pan   ·   Scroll to zoom   ·   Double-click to fit"},egui::FontId::proportional(11.),Color32::from_rgb(97,117,133));
+        if let Some(frame) = &self.frame {
+            painter.text(
+                rect.right_top() + Vec2::new(-20., 22.),
+                egui::Align2::RIGHT_TOP,
+                format!(
+                    "{} · {}",
+                    frame.metadata["backend"].as_str().unwrap_or("unknown"),
+                    frame.metadata["render_id"]
+                        .as_str()
+                        .unwrap_or("")
+                        .get(..8)
+                        .unwrap_or("")
+                ),
+                egui::FontId::proportional(11.),
+                Color32::from_rgb(97, 117, 133),
+            );
+        }
         let origin = rect.right_bottom() - Vec2::new(42., 42.);
         for (axis, label, color) in [
             ([1., 0., 0.], "X", Color32::from_rgb(203, 91, 81)),

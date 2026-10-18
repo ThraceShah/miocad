@@ -120,3 +120,60 @@ fn reconciliation_receipt_is_not_hidden_by_refresh_completion() {
     assert!(!w.model.busy);
     assert!(w.model.notice.contains("unavailable"));
 }
+
+#[test]
+fn service_frames_require_matching_epoch_camera_dimensions_and_revision() {
+    use cad_ui_egui::{BoundScene, Event, Workspace};
+    use std::sync::Arc;
+    let mut workspace = Workspace::default();
+    workspace.viewport_size = [96, 96];
+    workspace.model.connected = true;
+    workspace.model.update_documents(vec![document(1)]);
+    workspace.model.select(DocumentId::new("doc").unwrap());
+    let mesh:Mesh=serde_json::from_value(json!({"points":[[0,0,0],[10,0,0],[0,10,0]],"triangles":[{"vertices":[0,1,2],"face":"face"}]})).unwrap();
+    workspace.model.set_scene(BoundScene {
+        document: DocumentId::new("doc").unwrap(),
+        revision: Revision::new(1).unwrap(),
+        scene: Arc::new(Scene {
+            state: document(1).data,
+            mesh: Some(mesh.clone()),
+            edges: vec![],
+            can_undo: true,
+            can_redo: false,
+        }),
+    });
+    let epoch = workspace.model.view_epoch;
+    let camera = workspace.model.camera;
+    let ctx = egui::Context::default();
+    let event = |epoch, revision, camera, size| {
+        let mut frame = cad_render::render_view(&mesh, &[], size, size, camera).unwrap();
+        frame.metadata["document"] = json!("doc");
+        frame.metadata["revision"] = json!(revision);
+        frame.metadata["render_id"] = json!("frame");
+        let rgb = frame.viewport_rgb(None);
+        Event::View {
+            epoch,
+            frame: Arc::new(frame),
+            rgb,
+            width: size,
+            height: size,
+            document: DocumentId::new("doc").unwrap(),
+            revision: Revision::new(revision).unwrap(),
+            preview: false,
+        }
+    };
+    workspace.apply(event(epoch - 1, 1, camera, 96), &ctx);
+    assert!(!workspace.frame_current());
+    let mut other = camera;
+    other.yaw += 0.1;
+    workspace.apply(event(epoch, 1, other, 96), &ctx);
+    assert!(!workspace.frame_current());
+    workspace.apply(event(epoch, 2, camera, 96), &ctx);
+    assert!(!workspace.frame_current());
+    workspace.apply(event(epoch, 1, camera, 128), &ctx);
+    assert!(!workspace.frame_current());
+    workspace.apply(event(epoch, 1, camera, 96), &ctx);
+    assert!(workspace.frame_current());
+    workspace.model.view_changed();
+    assert!(!workspace.frame_current());
+}

@@ -87,3 +87,28 @@ fn local_orbit_has_stable_scale_and_independent_pick_maps() {
     camera.zoom = f64::NAN;
     assert!(cad_render::render_view(&mesh, &edges, 192, 160, camera).is_err());
 }
+
+#[test]
+fn packed_planes_roundtrip_and_invalid_payloads_are_rejected() {
+    let (mesh, edges) = geometry();
+    let frame = cad_render::render(&mesh, &edges, 96, 96).unwrap();
+    let wire = serde_json::to_value(&frame).unwrap();
+    assert!(wire["rgb"].is_string() && wire["faces"].is_string());
+    let restored: cad_render::Frame = serde_json::from_value(wire.clone()).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(restored.rgb(), frame.rgb());
+    for (x, y) in [(0, 0), (48, 48), (60, 60)] {
+        assert_eq!(
+            frame.pick(x, y, "edge").unwrap(),
+            restored.pick(x, y, "edge").unwrap()
+        );
+    }
+    let mut bad = wire.clone();
+    bad["rgb"] = json!("not-base64");
+    assert!(serde_json::from_value::<cad_render::Frame>(bad).is_err());
+    let mut bad = wire;
+    bad["width"] = json!(95);
+    let bad: cad_render::Frame = serde_json::from_value(bad).unwrap();
+    assert!(bad.validate().is_err());
+    assert!(bad.pick(0, 0, "edge").is_err());
+}

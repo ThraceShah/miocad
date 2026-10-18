@@ -9,7 +9,7 @@ import time
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 BIN=Path(os.environ.get('CAD_BIN',ROOT/'target/debug')).resolve()
-OUT=ROOT/'artifacts/p5-gui';OUT.mkdir(parents=True,exist_ok=True)
+OUT=ROOT/'artifacts/p7-gui';OUT.mkdir(parents=True,exist_ok=True)
 (OUT/'gui.log').write_text('')
 runtime=Path(tempfile.mkdtemp(prefix='miocad-p5-window-'))
 log=(OUT/'xvfb.log').open('w')

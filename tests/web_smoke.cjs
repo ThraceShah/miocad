@@ -2,26 +2,30 @@
 // CAD_PLAYWRIGHT=<package directory> node tests/web_smoke.cjs
 const fs=require('fs');const os=require('os');const path=require('path');const net=require('net');const {spawn,spawnSync}=require('child_process');const assert=require('assert/strict');
 const {chromium}=require(process.env.CAD_PLAYWRIGHT||'playwright');
-const root=path.resolve(__dirname,'..'),out=path.join(root,'artifacts/p6-web');fs.mkdirSync(out,{recursive:true});
+const root=path.resolve(__dirname,'..'),out=path.join(root,'artifacts/p7-web');fs.mkdirSync(out,{recursive:true});
 const bin=process.env.CAD_BIN||path.join(root,'target/debug'),runtime=fs.mkdtempSync(path.join(os.tmpdir(),'miocad-web-smoke-'));
-function cli(command){const result=spawnSync(path.join(bin,'cad-cli'),['--runtime-dir',runtime,'--worker',path.join(root,'build/cad-server'),'--client-id','browser-smoke-agent'],{input:JSON.stringify(command)+'\n',encoding:'utf8'});assert.equal(result.status,0,result.stderr);const value=JSON.parse(result.stdout);assert(value.ok,JSON.stringify(value));return value.result;}
+function cli(command){const result=spawnSync(path.join(bin,'cad-cli'),['--runtime-dir',runtime,'--worker',path.join(root,'build/cad-server'),'--client-id','browser-smoke-agent'],{input:JSON.stringify(command)+'\n',encoding:'utf8',maxBuffer:16*1024*1024});assert.equal(result.status,0,result.stderr);const value=JSON.parse(result.stdout);assert(value.ok,JSON.stringify(value));return value.result;}
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function port(){const server=net.createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
-(async()=>{let gateway,browser;const errors=[],receipts=[];let document;
+(async()=>{let gateway,browser;const errors=[],receipts=[],webFrames=new Map();let document;
 try{
  const origin=`http://127.0.0.1:${await port()}`,url=`${origin}/apps/miocad/`;
  const log=fs.openSync(path.join(out,'gateway.log'),'w');gateway=spawn(path.join(bin,'cad-web'),['--runtime-dir',runtime,'--worker',path.join(root,'build/cad-server')],{env:{...process.env,HOST:'127.0.0.1',PORT:new URL(origin).port,BASE_PATH:'/apps/miocad/',CAD_WEB_ORIGIN:origin,CAD_WEB_ASSETS:path.join(root,'artifacts/web')},stdio:['ignore',log,log]});
  for(let i=0;i<100;i++){try{if((await fetch(url+'health')).ok)break;}catch{}assert(i<99,'gateway startup timeout');await sleep(100);}
  browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});const context=await browser.newContext({viewport:{width:1280,height:820},deviceScaleFactor:1,acceptDownloads:true});const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
- page.on('response',async response=>{if(response.url().endsWith('/api/rpc')){try{receipts.push({request:JSON.parse(response.request().postData()),response:await response.json()});}catch{}}});
+ page.on('response',async response=>{if(response.url().endsWith('/api/view')){try{const frame=await response.json();webFrames.set(frame.metadata.render_id,frame.metadata);}catch{}}if(response.url().endsWith('/api/rpc')){try{receipts.push({request:JSON.parse(response.request().postData()),response:await response.json()});}catch{}}});
  async function shot(name){await sleep(850);await page.screenshot({path:path.join(out,name+'.png')});}
- async function clickRpc(x,y,op){const reply=page.waitForResponse(response=>{if(!response.url().endsWith('/api/rpc'))return false;try{return JSON.parse(response.request().postData()).command?.op===op;}catch{return false;}},{timeout:10000});await page.mouse.move(x,y);await sleep(80);await page.mouse.click(x,y,{delay:60});const response=await (await reply).json();assert(response.ok,JSON.stringify(response));return response;}
+ async function clickRpc(x,y,op){const before=Math.max(-1,...[...webFrames.values()].map(v=>v.epoch));const reply=page.waitForResponse(response=>{if(!response.url().endsWith('/api/rpc'))return false;try{return JSON.parse(response.request().postData()).command?.op===op;}catch{return false;}},{timeout:10000});await page.mouse.move(x,y);await sleep(80);await page.mouse.click(x,y,{delay:60});const response=await (await reply).json();assert(response.ok,JSON.stringify(response));if(op==='model.preview'){const until=Date.now()+15000;while(![...webFrames.values()].some(v=>v.preview&&v.epoch>before)){assert(Date.now()<until,'candidate frame not published to browser');await sleep(100);}await sleep(350);}return response;}
  function state(){return cli({op:'document.state',document});}
  await page.goto(url);await shot('01-login');await page.locator('#code').fill(fs.readFileSync(path.join(runtime,'web-access-code'),'utf8'));await page.locator('#connect').click();await page.locator('#workspace').waitFor({state:'visible'});await sleep(1500);
  const created=await clickRpc(80,78,'document.create');document=created.result.document;await shot('02-document');
  await clickRpc(1120,480,'model.preview');await shot('03-box-preview');assert.equal(state().revision,0);assert(state().data.empty);
  await page.mouse.click(1194,524);await shot('04-preview-cancelled');assert.equal(state().revision,0);
  await clickRpc(1120,480,'model.preview');await sleep(800);await clickRpc(1070,524,'model.box');await shot('05-box');assert.equal(state().revision,1);assert.equal(state().data.volume,1000);
+ // Agent captures the exact frame backing the Web texture, including the same ID maps.
+ const frames=cli({op:'render.frames'});const current=frames.filter(f=>f.document===document&&f.revision===1&&!f.preview&&f.view_id).at(-1);assert(current&&current.backend==='wgpu');
+ const untilFrame=Date.now()+15000;while(!webFrames.has(current.render_id)){assert(Date.now()<untilFrame,'browser did not receive published frame');await sleep(100);}const captured=cli({op:'render.capture',render_id:current.render_id});assert.deepEqual(captured.camera,current.camera);assert.equal(captured.images.shaded,webFrames.get(current.render_id).images.shaded);
+ const pick=cli({op:'render.pick',render_id:current.render_id,x:Math.floor((608-218)/780*current.width),y:Math.floor((555-110)/672*current.height)});assert(pick.reference&&!pick.ambiguous);
  await page.mouse.click(1070,524);await sleep(150);assert.equal(state().revision,1);
  await page.mouse.move(608,555);await sleep(100);await page.mouse.click(608,555,{delay:60});await shot('06-selected-edge');await clickRpc(1120,424,'model.preview');await shot('07-fillet-preview');assert.equal(state().revision,1);
  await clickRpc(1070,469,'model.fillet');await shot('08-fillet');assert.equal(state().revision,2);assert(state().data.valid);assert(Math.abs(state().data.volume-997.8539818)<1e-4);

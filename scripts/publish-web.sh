@@ -48,6 +48,46 @@ PY
 then
     systemctl --user start miocad-cad-service.service
 fi
+# Upgrade GPU/viewport handling in an independent relay, preserving the document owner,
+# its service/worker IDs, counters and Undo/Redo. SIGTERM restores the upstream listener.
+cat > "$HOME/.config/systemd/user/miocad-render-service.service" <<UNIT
+[Unit]
+Description=AI-CAD shared GPU viewport relay
+After=network-online.target miocad-cad-service.service
+[Service]
+ExecStart="$service_release/bin/cad-service" --relay-runtime-dir "$runtime"
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=yes
+UMask=0077
+[Install]
+WantedBy=default.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable miocad-render-service.service
+systemctl --user restart miocad-render-service.service
+# Wait for an actual rendering listener, not just a systemd process or an old log line.
+python3 - "$runtime" <<'PYREADY'
+import json,socket,sys,time
+from pathlib import Path
+root=Path(sys.argv[1])
+for attempt in range(80):
+    try:
+        endpoint=json.loads((root/'endpoint.json').read_bytes());upstream=json.loads((root/'render-upstream.json').read_bytes())
+        assert endpoint['address']!=upstream['address'] and endpoint['service_id']==upstream['service_id']
+        def call(request):
+            host,port=endpoint['address'].rsplit(':',1)
+            with socket.create_connection((host,int(port)),timeout=2) as connection:
+                connection.sendall((json.dumps({'protocol':endpoint['protocol'],'service_id':endpoint['service_id'],'token':endpoint['token'],'request':request})+'\n').encode())
+                reply=json.loads(connection.makefile('rb').readline());assert 'result' in reply;return reply['result']
+        session=call({'method':'ping'})['default_session'];assert isinstance(call({'method':'render_frames','session':session}),list)
+        break
+    except Exception:
+        if attempt==79:raise
+        time.sleep(.1)
+PYREADY
+systemctl --user is-active --quiet miocad-render-service.service
 # The portal's base64 validator currently overflows its stack on large ELF/WASM files.
 # Use its documented persistent-local-service + proxy mode instead of uploading binaries.
 web_hash="$(find artifacts/web-bundle -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)"
@@ -62,13 +102,14 @@ web_port="${CAD_WEB_PORT:-19060}"
 cat > "$HOME/.config/systemd/user/miocad-web.service" <<UNIT
 [Unit]
 Description=AI-CAD egui Web gateway
-After=network-online.target
+After=network-online.target miocad-render-service.service
 [Service]
 ExecStart="$web_release/bin/cad-web" --runtime-dir "$runtime"
 Environment=HOST=127.0.0.1
 Environment=PORT=$web_port
 Environment=BASE_PATH=/apps/miocad/
 Environment=CAD_WEB_ATTACH_ONLY=1
+Environment=CAD_WEB_REQUIRE_RELAY=1
 Environment=CAD_WEB_STRIP_PREFIX=1
 Restart=on-failure
 RestartSec=3

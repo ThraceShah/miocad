@@ -1,16 +1,12 @@
 # cad-render
 
-纯 Rust CPU 场景渲染库，输入 revision 一致的 Mesh / Edge 折线；不调用内核、进程、网络或窗口。
-cad-service 在同一 worker 锁内获取几何，使用 spawn_blocking 渲染并缓存最近四帧。
-CLI/MCP 只通过 cad-client/cad-access 请求服务能力，不各自重实现渲染。
+共享 Rust 场景渲染库，输入 revision 一致的 Mesh / Edge；不调用内核、网络或窗口。
+P7 在服务端使用 wgpu 两遍 compute 生成 Shaded / Face ID / Edge ID / 浮点深度，保留 CPU fallback。
+默认 384×384，64..768；支持明确正交相机，Frame 的 PNG 和 ID 平面来自同一次渲染。
 
-固定正交等轴测相机从 (+,+,+) 观察，按视口自动缩放，z-buffer 光照三角形 rasterization。
-默认 384×384，可配置 64..768；生成 RGB8 PNG 的 shaded、face-id、edge-id 和帧内 ID 映射。
-24-bit ID 按 RGB 小端编码，0 为背景/不可直接选取的歧义。边折线约 2px 覆盖和 4px 深度容差，
-是 CPU 预览拾取，不是精确射线或 GPU picking。重叠候选标记 ambiguous，reference=null。
+服务缓存最近四帧。桌面/Web/Agent 复用同一 Frame，可按 render ID 捕获；修改后或视口 epoch 过期的拾取被拒绝。
+RGB/u32 ID 平面有界压缩传输；GPU 上传缓存按投影字节精确比较，场景缓存按文档 revision 更新。
+边容差 2 px、深度使用表面斜率补偿及 0.05 px 偏差；歧义返回 null 与候选，不自动选第一个。
+GPU 最多三个候选，溢出明确报告。它是三角化视图拾取，不是精确 B-Rep 射线求交。
 
-服务给帧附加 render/document/revision/worker/session 和相机、尺寸。每次 pick 都向核心验证 revision，
-然后查询同一帧的映射；帧缓存跨入口共享，不作为长期拓扑命名。编辑后的引用还必须通过核心验证。
-省略 directory 时没有磁盘写入；显式 directory 保存图片路径到 files，images 始终为 base64 PNG。
-
-测试核对 PNG 像素 ID 与 pick 引用、可见性、背景、歧义、尺寸和坏网格；产品测试覆盖跨进程/会话与 stale/evicted 帧。
+适配器信息、fallback 原因、数值边界、测试和性能见 [P7 说明](../../docs/viewport-p7.md)。

@@ -18,16 +18,21 @@ use tokio::{
 };
 const EVENT_LIMIT: usize = 64;
 struct Worker {
-    child: Child,
-    reader: BufReader<ChildStdout>,
-    writer: ChildStdin,
+    child: Option<Child>,
+    reader: Option<BufReader<ChildStdout>>,
+    writer: Option<ChildStdin>,
+    upstream: Option<ServiceEndpoint>,
+    observer: String,
     context: Value,
     docs: BTreeSet<String>,
     events: VecDeque<Value>,
     cursor: u64,
     lost: Option<String>,
     internal_id: u64,
-    frames: VecDeque<(String, cad_render::Frame)>,
+    frames: VecDeque<(String, Arc<cad_render::Frame>)>,
+    renderer: Arc<std::sync::Mutex<Option<cad_render::Renderer>>>,
+    scene_cache: Option<(String, Value)>,
+    views: BTreeMap<String, u64>,
 }
 impl Worker {
     async fn start(path: &PathBuf) -> Result<Self, String> {
@@ -41,9 +46,11 @@ impl Worker {
         let reader = BufReader::new(child.stdout.take().ok_or("worker stdout missing")?);
         let writer = child.stdin.take().ok_or("worker stdin missing")?;
         let mut w = Self {
-            child,
-            reader,
-            writer,
+            child: Some(child),
+            reader: Some(reader),
+            writer: Some(writer),
+            upstream: None,
+            observer: "service-observer".into(),
             context: Value::Null,
             docs: BTreeSet::new(),
             events: VecDeque::new(),
@@ -51,6 +58,9 @@ impl Worker {
             lost: None,
             internal_id: 0,
             frames: VecDeque::new(),
+            renderer: Arc::new(std::sync::Mutex::new(None)),
+            scene_cache: None,
+            views: BTreeMap::new(),
         };
         let hello = Request::hello(ClientId::new("service-observer").map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?
@@ -64,6 +74,48 @@ impl Worker {
         w.context = reply;
         Ok(w)
     }
+    async fn remote(endpoint: ServiceEndpoint, session: &str) -> Result<Self, String> {
+        let observer = format!(
+            "render-observer-{}",
+            &endpoint.service_id[..16.min(endpoint.service_id.len())]
+        );
+        let request = Request::hello(ClientId::new(observer.clone()).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?
+            .value()
+            .map_err(|e| e.to_string())?;
+        let context = cad_client::SharedClient::control(
+            &endpoint,
+            ServiceRequest::Rpc {
+                session: Some(session.into()),
+                request,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        if context["ok"] != true {
+            return Err("upstream worker hello rejected".into());
+        }
+        let internal_id = context["result"]["last_request_id"]
+            .as_u64()
+            .ok_or("upstream high-water missing")?;
+        Ok(Self {
+            child: None,
+            reader: None,
+            writer: None,
+            upstream: Some(endpoint),
+            observer,
+            context,
+            internal_id,
+            docs: BTreeSet::new(),
+            events: VecDeque::new(),
+            cursor: 0,
+            lost: None,
+            frames: VecDeque::new(),
+            renderer: Arc::new(std::sync::Mutex::new(None)),
+            scene_cache: None,
+            views: BTreeMap::new(),
+        })
+    }
     async fn exchange(&mut self, req: &Value) -> Result<Value, String> {
         if let Some(reason) = &self.lost {
             return Err(format!(
@@ -71,8 +123,20 @@ impl Worker {
             ));
         }
         let result = timeout(Duration::from_secs(60), async {
-            write_frame(&mut self.writer, req).await?;
-            let value = read_frame(&mut self.reader).await?;
+            let value = if let Some(endpoint) = &self.upstream {
+                cad_client::SharedClient::control(
+                    endpoint,
+                    ServiceRequest::Rpc {
+                        session: self.context["session_id"].as_str().map(str::to_string),
+                        request: req.clone(),
+                    },
+                )
+                .await
+                .map_err(|e| e.to_string())?
+            } else {
+                write_frame(self.writer.as_mut().ok_or("worker stdin missing")?, req).await?;
+                read_frame(self.reader.as_mut().ok_or("worker stdout missing")?).await?
+            };
             let reply = Response::parse(value.clone()).map_err(|e| e.to_string())?;
             if value["client_id"] != req["client_id"] || value["request_id"] != req["request_id"] {
                 return Err("worker response correlation mismatch".into());
@@ -103,7 +167,9 @@ impl Worker {
         });
         if let Err(e) = &result {
             self.lost = Some(e.clone());
-            let _ = self.child.kill().await;
+            if let Some(child) = &mut self.child {
+                let _ = child.kill().await;
+            }
         }
         result.map_err(|e| format!("worker_lost: {e}; in-flight outcome unknown; no replay"))
     }
@@ -111,7 +177,7 @@ impl Worker {
         self.internal_id += 1;
         let request = json!({
             "protocol": self.context["protocol"], "method": "execute",
-            "client_id": "service-observer", "request_id": self.internal_id,
+            "client_id": self.observer, "request_id": self.internal_id,
             "worker_id": self.context["worker_id"], "session_id": self.context["session_id"],
             "command": {"op": "document.list"}
         });
@@ -129,7 +195,7 @@ impl Worker {
         self.internal_id += 1;
         let request = json!({
             "protocol": self.context["protocol"], "method": "execute",
-            "client_id": "service-observer", "request_id": self.internal_id,
+            "client_id": self.observer, "request_id": self.internal_id,
             "worker_id": self.context["worker_id"], "session_id": self.context["session_id"],
             "command": {"op": op, "document": document}
         });
@@ -143,32 +209,153 @@ impl Worker {
         }
         Ok(reply["result"].clone())
     }
+    #[allow(clippy::too_many_arguments)]
     async fn render_snapshot(
         &mut self,
         document: &str,
         width: u32,
         height: u32,
         directory: Option<String>,
+        camera: Option<Value>,
+        backend: String,
+        revision: Option<u64>,
+        view: Option<(String, u64)>,
+        preview: Option<cad_protocol::PreviewOperation>,
     ) -> Result<Value, String> {
-        let mesh = self.query("render.mesh", document).await?;
-        let edges = self.query("topology.edges", document).await?;
-        if mesh["revision"] != edges["revision"] {
-            return Err("revision_conflict: render geometry revisions disagree".into());
+        if let Some((view_id, epoch)) = &view {
+            if let Some(current) = self.views.get(view_id) {
+                if epoch < current {
+                    return Err("stale_view: a newer viewport was published".into());
+                }
+                if epoch == current {
+                    let frame = self
+                        .frames
+                        .iter()
+                        .find(|(_, f)| {
+                            f.metadata["view_id"] == *view_id && f.metadata["epoch"] == *epoch
+                        })
+                        .ok_or("render_not_found: equal epoch frame evicted; advance epoch")?;
+                    let m = &frame.1.metadata;
+                    let expected_camera = camera.as_ref().ok_or("missing viewport camera")?;
+                    let same_preview = m.get("preview_operation") == Some(&json!(preview));
+                    let same_camera = ["yaw", "pitch", "zoom", "pan"]
+                        .iter()
+                        .all(|field| m["camera"][field] == expected_camera[field]);
+                    if m["document"] == document
+                        && m["revision"].as_u64() == revision
+                        && m["width"] == width
+                        && m["height"] == height
+                        && m["preview"] == preview.is_some()
+                        && same_camera
+                        && same_preview
+                        && m["backend_request"] == backend
+                    {
+                        let cached = m.clone();
+                        let state = self.query("document.state", document).await?;
+                        if state["revision"].as_u64() != revision {
+                            return Err("stale_render: document changed".into());
+                        }
+                        return Ok(cached);
+                    }
+                    return Err(
+                        "view_conflict: epoch reused with different viewport; advance epoch".into(),
+                    );
+                }
+            } else if self.views.len() >= 128 {
+                return Err("view_limit: 128 view identities per session".into());
+            }
         }
-        let mesh_data: cad_protocol::Mesh =
-            serde_json::from_value(mesh["data"].clone()).map_err(|e| e.to_string())?;
+        let camera = camera
+            .map(serde_json::from_value::<cad_render::Camera>)
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        let mut scene_hit = false;
+        let scene = if let Some(operation) = preview.clone() {
+            self.internal_id += 1;
+            let req = json!({"protocol":self.context["protocol"],"method":"execute","client_id":self.observer,"request_id":self.internal_id,"worker_id":self.context["worker_id"],"session_id":self.context["session_id"],"command":{"op":"model.preview","document":document,"revision":revision,"operation":operation}});
+            let result = self.exchange(&req).await?;
+            if result["ok"] != true {
+                return Err(format!("preview_failed: {}", result["error"]));
+            }
+            result["result"].clone()
+        } else {
+            let state = self.query("document.state", document).await?;
+            if let Some((cached_id, cached)) = &self.scene_cache {
+                if cached_id == document && cached["revision"] == state["revision"] {
+                    scene_hit = true;
+                    cached.clone()
+                } else {
+                    let result = self.query("render.scene", document).await?;
+                    self.scene_cache = Some((document.into(), result.clone()));
+                    result
+                }
+            } else {
+                let result = self.query("render.scene", document).await?;
+                self.scene_cache = Some((document.into(), result.clone()));
+                result
+            }
+        };
+        if revision.is_some_and(|revision| scene["revision"].as_u64() != Some(revision)) {
+            return Err("stale_render: requested document revision changed".into());
+        }
+        if let Some((view_id, epoch)) = &view {
+            if self
+                .views
+                .get(view_id)
+                .is_some_and(|current| epoch < current)
+            {
+                return Err("stale_view: a newer viewport request was published".into());
+            }
+        }
+        let mesh_data: cad_protocol::Mesh = serde_json::from_value(scene["data"]["mesh"].clone())
+            .map_err(|_| "empty_document: no mesh".to_string())?;
         let edge_data: Vec<cad_protocol::Edge> =
-            serde_json::from_value(edges["data"].clone()).map_err(|e| e.to_string())?;
-        // Worker lock covers both queries and publication. CPU work leaves the async executor free.
+            serde_json::from_value(scene["data"]["edges"].clone()).map_err(|e| e.to_string())?;
+        let requested_backend = backend.clone();
+        let renderer = self.renderer.clone();
+        let fit = camera.is_none();
+        let configured = std::env::var("CAD_RENDER_BACKEND").ok();
+        let forced_cpu = configured.as_deref() == Some("cpu");
+        let backend = if backend == "auto" {
+            configured.unwrap_or(backend)
+        } else {
+            backend
+        };
         let mut frame = tokio::task::spawn_blocking(move || {
-            cad_render::render(&mesh_data, &edge_data, width, height)
+            let mut guard = renderer.lock().map_err(|e| e.to_string())?;
+            let renderer = guard.get_or_insert_with(|| {
+                if forced_cpu {
+                    cad_render::Renderer::cpu("CAD_RENDER_BACKEND=cpu")
+                } else {
+                    cad_render::Renderer::new()
+                }
+            });
+            let frame = renderer.render(
+                &mesh_data,
+                &edge_data,
+                width,
+                height,
+                camera.unwrap_or_default(),
+                fit,
+                &backend,
+            )?;
+            Ok::<_, String>(frame)
         })
         .await
         .map_err(|e| e.to_string())??;
+        frame.metadata["backend_request"] = json!(requested_backend);
+        frame.metadata["scene_cache_hit"] = json!(scene_hit);
+        frame.metadata["preview"] = json!(preview.is_some());
+        frame.metadata["preview_operation"] = json!(preview);
+        if let Some((view_id, epoch)) = view {
+            frame.metadata["view_id"] = json!(view_id);
+            frame.metadata["epoch"] = json!(epoch);
+            self.views.insert(view_id, epoch);
+        }
         let id = unique_id().map_err(|e| e.to_string())?;
         frame.metadata["render_id"] = json!(id);
         frame.metadata["document"] = json!(document);
-        frame.metadata["revision"] = mesh["revision"].clone();
+        frame.metadata["revision"] = scene["revision"].clone();
         frame.metadata["session_id"] = self.context["session_id"].clone();
         frame.metadata["worker_id"] = self.context["worker_id"].clone();
         frame.metadata["files"] = match directory {
@@ -176,11 +363,42 @@ impl Worker {
             None => json!({}),
         };
         let metadata = frame.metadata.clone();
-        self.frames.push_back((id, frame));
+        self.frames.push_back((id, Arc::new(frame)));
         while self.frames.len() > 4 {
             self.frames.pop_front();
         }
         Ok(metadata)
+    }
+    async fn capture(&mut self, render_id: &str) -> Result<Value, String> {
+        let frame = self
+            .frames
+            .iter()
+            .find(|(id, _)| id == render_id)
+            .ok_or("render_not_found: unknown or evicted frame")?
+            .1
+            .clone();
+        let m = &frame.metadata;
+        if m["preview"] == true {
+            return Err(
+                "preview_frame: candidate cannot be picked or captured as committed geometry"
+                    .into(),
+            );
+        }
+        if let (Some(view), Some(epoch)) = (m["view_id"].as_str(), m["epoch"].as_u64()) {
+            if self.views.get(view) != Some(&epoch) {
+                return Err("stale_view: viewport has advanced".into());
+            }
+        }
+        let state = self
+            .query(
+                "document.state",
+                m["document"].as_str().ok_or("invalid frame")?,
+            )
+            .await?;
+        if state["revision"] != m["revision"] {
+            return Err("stale_render: document changed".into());
+        }
+        Ok(m.clone())
     }
     async fn render_pick(
         &mut self,
@@ -189,6 +407,7 @@ impl Worker {
         y: u32,
         target: &str,
     ) -> Result<Value, String> {
+        self.capture(render_id).await?;
         let metadata = {
             let frame = &self.frames.iter().find(|(id, _)| id == render_id)
                 .ok_or("render_not_found: unknown, evicted or different-session frame; request a new snapshot")?.1;
@@ -227,22 +446,30 @@ impl Worker {
         ] {
             result[name] = metadata[name].clone();
         }
+        for name in ["camera", "width", "height", "view_id", "epoch"] {
+            if let Some(value) = frame.metadata.get(name) {
+                result[name] = value.clone();
+            }
+        }
         Ok(result)
     }
     fn diagnostics(&mut self) -> Value {
         if self.lost.is_none() {
-            match self.child.try_wait() {
-                Ok(Some(status)) => self.lost = Some(format!("worker exited {status}")),
-                Err(e) => self.lost = Some(e.to_string()),
-                _ => {}
+            if let Some(child) = &mut self.child {
+                match child.try_wait() {
+                    Ok(Some(status)) => self.lost = Some(format!("worker exited {status}")),
+                    Err(e) => self.lost = Some(e.to_string()),
+                    _ => {}
+                }
             }
         }
-        json!({"session_id":self.context["session_id"],"worker_id":self.context["worker_id"],"worker_pid":self.child.id(),"state":if self.lost.is_some(){"lost"}else{"ready"},"reason":self.lost,"cursor":self.cursor,"documents":self.docs.len()})
+        json!({"session_id":self.context["session_id"],"worker_id":self.context["worker_id"],"worker_pid":self.child.as_ref().and_then(|child|child.id()),"state":if self.lost.is_some(){"lost"}else{"ready"},"reason":self.lost,"cursor":self.cursor,"documents":self.docs.len()})
     }
 }
 type Session = Arc<Mutex<Worker>>;
 struct Service {
     endpoint: ServiceEndpoint,
+    upstream: Option<ServiceEndpoint>,
     worker: PathBuf,
     default: String,
     sessions: Mutex<BTreeMap<String, Session>>,
@@ -262,6 +489,25 @@ impl Service {
         }
         if *self.stop.borrow() {
             return Err("service_stopping: no new work accepted".into());
+        }
+        if let Some(upstream) = &self.upstream {
+            if !matches!(
+                &envelope.request,
+                ServiceRequest::RenderSnapshot { .. }
+                    | ServiceRequest::RenderView { .. }
+                    | ServiceRequest::RenderCapture { .. }
+                    | ServiceRequest::RenderFrames { .. }
+                    | ServiceRequest::RenderPick { .. }
+            ) {
+                let stopping = matches!(&envelope.request, ServiceRequest::Shutdown);
+                let result = cad_client::SharedClient::control(upstream, envelope.request)
+                    .await
+                    .map_err(|e| e.to_string());
+                if stopping {
+                    let _ = self.stop.send(true);
+                }
+                return result;
+            }
         }
         match envelope.request {
             ServiceRequest::Ping => Ok(json!({
@@ -324,11 +570,19 @@ impl Service {
                 };
                 Ok(json!({"cursor": worker.cursor, "resync_required": missed, "events": events}))
             }
-            ServiceRequest::RenderSnapshot { session, document, width, height, directory } => {
+            ServiceRequest::RenderSnapshot { session, document, width, height, directory, camera, backend, revision } => {
                 let session = self.session(&session).await?;
-                let result = session.lock().await.render_snapshot(&document, width, height, directory).await;
+                let result = session.lock().await.render_snapshot(&document, width, height, directory,camera,backend,revision,None,None).await;
                 result
             }
+            ServiceRequest::RenderView {session,view} => {
+                let session=self.session(&session).await?;let mut worker=session.lock().await;
+                let metadata=worker.render_snapshot(view.document.as_str(),view.width,view.height,None,Some(view.camera),view.backend,Some(view.revision.get()),Some((view.view_id,view.epoch)),view.preview).await?;
+                let frame=&worker.frames.iter().find(|(id,_)|Some(id.as_str())==metadata["render_id"].as_str()).ok_or("render_not_found")?.1;
+                serde_json::to_value(frame).map_err(|e|e.to_string())
+            }
+            ServiceRequest::RenderCapture {session,render_id} => {let session=self.session(&session).await?;let result=session.lock().await.capture(&render_id).await;result}
+            ServiceRequest::RenderFrames {session} => {let session=self.session(&session).await?;let worker=session.lock().await;Ok(json!(worker.frames.iter().map(|(_,frame)|{let mut info=frame.metadata.clone();let object=info.as_object_mut().unwrap();object.remove("images");object.remove("files");info}).collect::<Vec<_>>()))}
             ServiceRequest::RenderPick { session, render_id, x, y, target } => {
                 let session = self.session(&session).await?;
                 let result = session.lock().await.render_pick(&render_id,x,y,&target).await;
@@ -353,12 +607,20 @@ impl Service {
         Ok(result)
     }
     async fn session(&self, id: &str) -> Result<Session, String> {
-        self.sessions
-            .lock()
-            .await
-            .get(id)
-            .cloned()
-            .ok_or_else(|| "session_not_found".into())
+        let mut sessions = self.sessions.lock().await;
+        if let Some(session) = sessions.get(id) {
+            return Ok(session.clone());
+        }
+        if let Some(upstream) = &self.upstream {
+            if sessions.len() >= 16 {
+                return Err("session_limit".into());
+            }
+            let worker = Worker::remote(upstream.clone(), id).await?;
+            let worker = Arc::new(Mutex::new(worker));
+            sessions.insert(id.into(), worker.clone());
+            return Ok(worker);
+        }
+        Err("session_not_found".into())
     }
 }
 async fn connection(socket: TcpStream, service: Arc<Service>) {
@@ -393,6 +655,14 @@ async fn main() {
 }
 async fn run() -> Result<(), String> {
     let mut args = std::env::args_os().skip(1);
+    if std::env::args().nth(1).as_deref() == Some("--relay-runtime-dir") {
+        return relay(PathBuf::from(
+            std::env::args_os()
+                .nth(2)
+                .ok_or("--relay-runtime-dir requires directory")?,
+        ))
+        .await;
+    }
     let mut root = None;
     let mut worker = None;
     while let Some(arg) = args.next() {
@@ -453,6 +723,7 @@ async fn run() -> Result<(), String> {
     let (stop, mut stopping) = watch::channel(false);
     let service = Arc::new(Service {
         endpoint,
+        upstream: None,
         worker,
         default: default.clone(),
         sessions: Mutex::new(BTreeMap::from([(default, Arc::new(Mutex::new(first)))])),
@@ -486,11 +757,123 @@ async fn run() -> Result<(), String> {
     let sessions: Vec<_> = service.sessions.lock().await.values().cloned().collect();
     for s in sessions {
         let mut w = s.lock().await;
-        let _ = w.child.kill().await;
-        let _ = w.child.wait().await;
+        if let Some(child) = &mut w.child {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+        }
     }
     // Hold the singleton lock until endpoint removal and all workers have stopped.
     let _ = std::fs::remove_file(path);
+    drop(lock);
+    Ok(())
+}
+
+// Upgrade rendering without stopping the existing document owner. The original endpoint
+// remains pinned privately; only discovery's address changes, never service/worker identity.
+async fn relay(root: PathBuf) -> Result<(), String> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(root.join("render-relay.lock"))
+        .map_err(|e| e.to_string())?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => return Err("render relay already running".into()),
+        Err(e) => return Err(e.to_string()),
+    }
+    let endpoint_path = root.join("endpoint.json");
+    let upstream_path = root.join("render-upstream.json");
+    let current: ServiceEndpoint =
+        serde_json::from_slice(&std::fs::read(&endpoint_path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    let saved = std::fs::read(&upstream_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<ServiceEndpoint>(&b).ok());
+    let upstream = if let Some(saved) = saved {
+        if saved.service_id == current.service_id
+            && cad_client::SharedClient::control(&saved, ServiceRequest::Ping)
+                .await
+                .is_ok()
+        {
+            saved
+        } else {
+            current
+        }
+    } else {
+        current
+    };
+    let ping = cad_client::SharedClient::control(&upstream, ServiceRequest::Ping)
+        .await
+        .map_err(|e| e.to_string())?;
+    let default = ping["default_session"]
+        .as_str()
+        .ok_or("upstream default missing")?
+        .to_string();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| e.to_string())?;
+    let endpoint = ServiceEndpoint {
+        address: listener.local_addr().map_err(|e| e.to_string())?,
+        ..upstream.clone()
+    };
+    let first = Worker::remote(upstream.clone(), &default).await?;
+    let (stop, mut stopping) = watch::channel(false);
+    let service = Arc::new(Service {
+        endpoint: endpoint.clone(),
+        upstream: Some(upstream.clone()),
+        worker: PathBuf::new(),
+        default: default.clone(),
+        sessions: Mutex::new(BTreeMap::from([(default, Arc::new(Mutex::new(first)))])),
+        keys: Mutex::new(BTreeMap::new()),
+        stop,
+    });
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .open(root.join("render-upstream.tmp"))
+        .map_err(|e| e.to_string())?;
+    file.write_all(&serde_json::to_vec(&upstream).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(root.join("render-upstream.tmp"), &upstream_path).map_err(|e| e.to_string())?;
+    let publish = |endpoint: &ServiceEndpoint| -> Result<(), String> {
+        let path = root.join("render-endpoint.tmp");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(endpoint).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        std::fs::rename(path, &endpoint_path).map_err(|e| e.to_string())
+    };
+    publish(&endpoint)?;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|e| e.to_string())?;
+    let mut tasks = tokio::task::JoinSet::new();
+    eprintln!("render relay ready; document owner remains alive");
+    loop {
+        tokio::select! {
+            accepted=listener.accept()=>{let (socket,_)=accepted.map_err(|e|e.to_string())?;if tasks.len()<128{tasks.spawn(connection(socket,service.clone()));}},
+            _=stopping.changed()=>break,
+            _=tokio::signal::ctrl_c()=>break,
+            _=terminate.recv()=>break,
+            Some(_)=tasks.join_next(),if !tasks.is_empty()=>{}
+        }
+    }
+    drop(listener);
+    let _ = service.stop.send(true);
+    while tasks.join_next().await.is_some() {}
+    if cad_client::SharedClient::control(&upstream, ServiceRequest::Ping)
+        .await
+        .is_ok()
+    {
+        publish(&upstream)?;
+    }
     drop(lock);
     Ok(())
 }

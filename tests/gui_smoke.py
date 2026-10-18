@@ -7,12 +7,12 @@ import subprocess
 import sys
 import time
 ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'artifacts/p5-gui'
+OUT=ROOT/'artifacts/p7-gui'
 BIN=Path(os.environ.get('CAD_BIN',ROOT/'target/debug'))
 class Smoke:
     def __init__(self):
         self.probe=subprocess.Popen([sys.executable,'-u',str(ROOT/'tests/gui_probe.py')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
-        self.info=json.loads(self.probe.stdout.readline());self.runtime=self.info['runtime'];self.receipts=[];self.mcp=None
+        self.info=json.loads(self.probe.stdout.readline());self.runtime=self.info['runtime'];self.receipts=[];self.mcp=None;self.last_view_epoch=-1
     def ui(self,op,**args):
         self.probe.stdin.write(json.dumps(dict(op=op,**args))+'\n');self.probe.stdin.flush()
         result=json.loads(self.probe.stdout.readline());assert result['ok'],result
@@ -29,9 +29,22 @@ class Smoke:
             if state['revision']==revision:return state
             time.sleep(.1)
         raise AssertionError(f'window did not commit revision {revision}: {state}')
+    def wait_view(self,preview,revision=None):
+        until=time.monotonic()+12
+        while True:
+            frames=self.cli({'op':'render.frames'})['result']
+            latest=frames[-1] if frames else None
+            if latest and latest.get('epoch',-1)>self.last_view_epoch and latest.get('preview')==preview and (revision is None or latest['revision']==revision):
+                self.last_view_epoch=latest['epoch'];time.sleep(.3);return latest
+            assert time.monotonic()<until,'viewport did not publish expected frame'
+            time.sleep(.1)
     def shot(self,name):
+        if name in ['02-box-preview','04-ready-to-confirm','06-fillet-preview','10-before-agent-edit']:self.wait_view(True)
         time.sleep(.65)
-        return Path(self.ui('shot',name=name))
+        result=Path(self.ui('shot',name=name))
+        frames=self.cli({'op':'render.frames'})['result'] if name!='13-service-unavailable' else []
+        if frames:self.last_view_epoch=max(self.last_view_epoch,frames[-1].get('epoch',-1))
+        return result
     @staticmethod
     def pixels(path):return subprocess.check_output(['/usr/bin/ffmpeg','-hide_banner','-loglevel','error','-i',str(path),'-f','rawvideo','-pix_fmt','rgb24','-'])
     def blue_count(self,path):
@@ -61,6 +74,7 @@ class Smoke:
         self.ui('click',x=1120,y=480);self.shot('04-ready-to-confirm')
         self.ui('click',x=1070,y=524);assert self.wait_revision(1)['data']['volume']==1000
         self.ui('click',x=1070,y=524);assert self.state()['revision']==1 # No second history step.
+        self.wait_view(False,1)
         self.ui('click',x=608,y=555);self.shot('05-selected-edge')
         self.mcp=subprocess.Popen([str(BIN/'cad-mcp'),'--runtime-dir',self.runtime,'--client-id','native-smoke-agent'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         assert 'result' in self.rpc('initialize',dict(protocolVersion='2025-11-25',capabilities={},clientInfo={'name':'native-smoke','version':'1'}))

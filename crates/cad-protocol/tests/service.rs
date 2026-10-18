@@ -33,6 +33,9 @@ fn all_service_methods_match_the_neutral_contract() {
             width: 384,
             height: 384,
             directory: None,
+            camera: None,
+            backend: "auto".into(),
+            revision: None,
         },
         ServiceRequest::RenderPick {
             session: "session".into(),
@@ -40,6 +43,27 @@ fn all_service_methods_match_the_neutral_contract() {
             x: 0,
             y: 0,
             target: "edge".into(),
+        },
+        ServiceRequest::RenderFrames {
+            session: "session".into(),
+        },
+        ServiceRequest::RenderCapture {
+            session: "session".into(),
+            render_id: "render".into(),
+        },
+        ServiceRequest::RenderView {
+            session: "session".into(),
+            view: Viewport {
+                document: cad_protocol::DocumentId::new("document").unwrap(),
+                revision: cad_protocol::Revision::new(1).unwrap(),
+                width: 384,
+                height: 384,
+                camera: json!({"yaw":0.,"pitch":0.,"zoom":1.,"pan":[0.,0.]}),
+                epoch: 1,
+                view_id: "view".into(),
+                preview: None,
+                backend: "auto".into(),
+            },
         },
         ServiceRequest::Shutdown,
     ];

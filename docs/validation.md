@@ -384,3 +384,67 @@ artifacts/p6-web 保存 PNG、acceptance.json、deployment.json、browser-workfl
 CAD daemon 自身重启仍失去内存文档；Web 重启保留文档。内核没有导入文档接口，因此没有伪上传入口，也无 STEP/OCCT。
 
 本阶段只本地 Git 提交，不推送；保留生产 Web/CAD 两个持久服务，关闭开发验收服务/窗口。
+
+## P7 共享 GPU 视口（2026-10-19）
+
+实现：cad-render/wgpu 27.0.1 的 surface/depth/Face ID 和 edge/depth-test 两遍 compute；
+桌面/Web/Agent 同用服务 Frame，新增 render.frames/capture。CPU fallback、版本/相机/视口序号检查、
+候选列表、薄层遮挡、压缩平面和缓存均有运行验证。没有修改 SMLib 或第三方内核源码，没有加入 Python 产品服务。
+
+测试：
+
+- cargo test --workspace：31 个 Rust 测试通过，包括新增 GPU、共享视口/relay、UI 迟到帧和压缩平面错误测试。
+- CTest 12/12，通过内核、Commander、事务、协议 54 个共用样例、Rust、CLI/MCP、真实桌面、Chromium 和实际 Agent host。
+- 原生/WASM Clippy -D warnings、fmt、脚本语法及 Git diff 检查通过。
+- GPU 测试核对 PNG/ID、遮挡/薄层、歧义 null+候选、精确字节上传缓存、强制 CPU 和严格 GPU 错误。
+- 服务测试核对同 render ID 原始捕获、视口相机/epoch 冲突及乱序、过期 revision、预览不提交、CPU 深度输出；
+  relay 经过两次启动/停止，原 worker/service identity、Box 文档和 Undo 历史保持。
+- UI 测试拒绝旧 epoch、不同相机/尺寸/revision 的 Frame；确认按钮只在候选帧已到达后启用。
+- 真实 native Xvfb 窗口用 Vulkan/llvmpipe，完整 Box/Fillet/Undo/Redo/外部修改/关闭重开/断线通过。
+- 真实 Chromium 用服务端 Radeon 780M 的 wgpu 帧，完整流程及丢回执核对通过；
+  浏览器收到的 Frame.images.shaded 与 Agent render.capture 完全相同，GPU ID 像素引用与实际点选闭环一致。
+- MCP render.capture 与 render.snapshot 均提供真正 image/png 内容，结构化图片与 image content 字节一致。
+
+实际视觉验证（与确定性测试分开）：当前 Codex 会话只查看 384×384 普通 shaded PNG，
+定位前侧竖边 (192,245)，MCP render.pick 返回唯一 edge 引用，Fillet radius=1 后 revision=2、valid=true、
+volume=997.8539816854025，并获取结果截图。没有通过搜索 ID 图来决定该像素。
+实际适配器为 AMD Radeon 780M Graphics / RADV PHOENIX / Vulkan / IntegratedGpu。
+这是一个实际视觉闭环样例，不是通用 VLM 准确率或稳定性统计。artifacts/p7/visual-selection.json 及前后 PNG 保留记录。
+
+tests/codex_mcp_host.py 使用真实 codex-cli 0.162.1 app-server，临时运行参数配置本项目 MCP，
+验证初始化、工具发现和 cad_command schema；没有修改用户配置，也没有发起模型推理 turn。
+实际 host 原生工具发现与当前 Agent 的视觉/MCP bridge 调用分别说明，未冒称多种 Agent 的全面兼容性认证。
+配置方式参考 [官方 app-server 文档](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server)。
+
+性能：release，Box 12 triangles / Fillet 44 triangles，384/640/768，每项三次；含 CLI 进程和 PNG 返回的往返中位数：
+
+| 模型 | 尺寸 | wgpu ms | CPU ms |
+|---|---:|---:|---:|
+| Box | 384 | 21.13 | 14.31 |
+| Box | 640 | 45.83 | 31.09 |
+| Box | 768 | 64.04 | 37.13 |
+| Fillet | 384 | 29.51 | 16.62 |
+| Fillet | 640 | 61.60 | 31.62 |
+| Fillet | 768 | 86.55 | 43.37 |
+
+这些小场景 GPU 不比 CPU 快；不能推断大模型性能。缓存命中、adapter、各次 render/往返耗时及图片字节数在 performance.json。
+服务 Frame 的 RGB/ID 改为有界 zlib/base64，384×320 测试帧整包小于 1 MiB；
+render.frames 不再回传重复 PNG，避免简单列举触发数 MiB 输出。相机改变仍重投影/上传，没有夸大缓存覆盖范围。
+
+上线：https://example.ts.net/apps/miocad/，门户 online=true。
+升级前后原 CAD owner PID=673288、service ID、原文档/版本/事件 cursor 完全相同；没有为升级重启模型拥有者。
+独立 miocad-render-service 接管发现入口，只更换监听地址，原 worker 和 dedup/high-water 仍由旧拥有者管理；
+SDK 显式重连可跟随同身份的新监听地址，拒绝新实例。
+实际 HTTPS Chromium 新建 Box/Fillet、同帧捕获、Secure/HttpOnly/SameSite cookie、资源/WASM/嵌套路径和门户通过。
+重启 render relay 与 Web 后原模型 revision/valid 保留，重新解锁恢复；三项 user systemd 服务 enabled/active。
+生产 Web 要求 relay 已发布，避免开机次序导致误附着旧入口。
+
+过程修正：原始固定截图等待不足以覆盖远程 GPU 帧到达，测试改为等待实际帧，UI 也不再用旧图冒充新候选。
+编译 C++ worker 时不再同时运行依赖它的测试，避免链接替换过程的短暂启动失败；中性 schema 修改后重建嵌入契约。
+先前 RenderFrames 元数据摘要与 schema 不符的问题已由真实 UI/服务测试发现并修正。
+
+边界：三角化的 GPU/CPU 视图拾取，浮点/栅格边界有数值容差，不是精确 B-Rep 射线求交；
+GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑客户端仍有原 128 配额。
+服务端集中渲染需要网络往返，Web 没有直接 WebGPU 几何路径；大网格/更多设备/OS 仍须测量。
+没有 Persistent Naming、磁盘历史恢复、多 body/特征树或多人协作系统，原文档拥有者崩溃仍丢失内存文档。
+所有改动本地 Git 提交，不推送；只保留生产持久服务，测试窗口/临时服务关闭。

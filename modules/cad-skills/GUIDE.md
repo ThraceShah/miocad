@@ -5,7 +5,7 @@ Rust CLI：`cad-cli`，逐行发送 JSON；Rust MCP：`cad-mcp`，工具 cad_com
 两者默认附着共享服务。同一 runtime-dir 的其他进程可继续使用已有文档；入口退出不会丢弃文档。
 安装、参数和原 Python 配置替换见 [P4 迁移指南](../../docs/migration-p4.md)。
 
-1. 调用 commands.list 发现统一命令、参数和前置条件；capabilities 查询核心能力，不能假设 GPU 已实现。
+1. 调用 commands.list 发现统一命令、参数和前置条件；capabilities 查询核心能力，检查返回 backend / adapter / fallback_reason，不把软件适配器称为硬件 GPU。
 2. 先用 service.snapshot 或 document.list 找到已有文档，或 document.create 创建，保存 ID 和 revision。
    尺寸/半径为 mm，体积为 mm³；没有全局“当前文档”，每次建模显式指定 ID。
 3. 每次修改携带当前 revision；成功后使用新 revision。revision_conflict 应刷新状态并重新决定操作。
@@ -23,7 +23,7 @@ Rust CLI：`cad-cli`，逐行发送 JSON；Rust MCP：`cad-mcp`，工具 cad_com
 9. 用 service.events(after) 拉变化；初次/重连或 resync_required 时取 service.snapshot，以其 cursor 为准。
    会话可通过 service.sessions 找到、service.attach 切换；不要将隔离会话中的帧用于默认会话。
 
-当前限制：每文档单 body、单边 Fillet、CPU 近似拾取、内存历史、无 Persistent Naming/磁盘恢复。
+当前限制：每文档单 body、单边 Fillet、三角化视图拾取、内存历史、无 Persistent Naming/磁盘恢复。
 默认 384×384，图片尺寸可为 64..768；每会话保留最近四帧，淘汰后需重拍。
 服务身份/请求缓存/资源配额详见服务文档；不提供任意内核代码执行。
 场景截图无窗口也可运行；桌面和 egui WebUI 已可操作同一文档。界面选择/相机属于界面本地状态，Agent 仍须显式传入实体引用。
@@ -31,3 +31,9 @@ Web 入口与授权使用见 [P6 说明](../../docs/web-p6.md)。
 
 显式 service.shutdown 会停止整个共享实例并丢弃内存文档，不是关闭单个入口；先完成所需原生导出。
 Rust 示例：`cargo run -p cad-access --example box_fillet --locked -- --runtime-dir /tmp/cad-demo`。
+
+P7：用 render.frames 找到明确的 view_id/epoch/document，再 render.capture 获取原帧；不要猜测全局当前视口。
+render.snapshot 可显式传 camera/revision/backend；pixel pick 失败或 candidates_truncated 时重新拍摄/几何查询，不盲选候选。
+相机更新导致 stale_view，模型编辑导致 stale_render；Preview 帧不能用作已提交模型。
+同用户的渲染 relay 升级保留 service/worker 身份，显式 service.reconnect 可跟随新监听地址；身份变化仍禁止迁移旧请求。
+详见 [P7 共享视口](../../docs/viewport-p7.md)。

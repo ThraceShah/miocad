@@ -1,6 +1,6 @@
 # 共享服务与 Rust/egui 改造计划
 
-日期：2026-10-18。状态：P1–P6 已实现并验收；下一阶段 P7。
+日期：2026-10-18。状态：P1–P7 已实现并验收；后续独立工作另行立项。
 依据：[架构决策](architecture.md) 与 [项目范围](scope.md)。
 阶段顺序按依赖排列，不作未经验证的工期承诺。每阶段通过验收后提交本地 Git commit 并报告，
 不擅自推送。迁移中保持现有 SMLib 能力可运行，按实际代码更新状态与使用说明。
@@ -8,7 +8,7 @@
 ## 0. 基线与执行原则
 
 迁移前基线：SMLib、C++ JSONL worker、Python MCP/CLI、Python CPU 预览。
-当前 P6 已具有 Rust 共享服务、CLI/MCP、CPU 场景渲染与 egui 桌面/Web 工作区。
+当前 P7 已具有 Rust 共享服务、CLI/MCP、共享 wgpu/CPU 场景与 egui 桌面/Web 工作区。
 P1 的验收结果见下节；不把既有 Python 原型计作 Rust 阶段完成。
 
 - 优先证明同一命令的结果、回滚和引用语义，再扩大界面功能。
@@ -203,12 +203,12 @@ P6 完成记录（2026-10-18）：
 
 依赖 P5/P6；wgpu 技术验证可提前，但不改变交付顺序。目标：完成统一视觉选择路径。
 
-- [ ] 完善 wgpu Shaded / Face ID / Edge ID / depth pass 与实体引用映射。
-- [ ] 复用桌面/Web 场景数据，定义服务端无窗口离屏渲染的复用和 fallback 方式。
-- [ ] 建立基于 revision / camera / viewport / render ID 的截图与拾取一致性检查。
-- [ ] 处理遮挡、边容差、多个候选、旧帧、异步结果乱序和 GPU 不可用情况。
-- [ ] 补充网格缓存/更新与代表性性能测量；按证据优化传输和重绘。
-- [ ] 在实际通用 Agent host 验证 MCP，记录客户端与版本；真实视觉选择与确定性测试分开报告。
+- [x] 完善 wgpu Shaded / Face ID / Edge ID / depth pass 与实体引用映射。
+- [x] 复用桌面/Web 场景数据，定义服务端无窗口离屏渲染的复用和 fallback 方式。
+- [x] 建立基于 revision / camera / viewport / render ID 的截图与拾取一致性检查。
+- [x] 处理遮挡、边容差、多个候选、旧帧、异步结果乱序和 GPU 不可用情况。
+- [x] 补充网格缓存/更新与代表性性能测量；按证据优化传输和重绘。
+- [x] 在实际通用 Agent host 验证 MCP，记录客户端与版本；真实视觉选择与确定性测试分开报告。
 
 验收：
 
@@ -220,6 +220,18 @@ P6 完成记录（2026-10-18）：
 
 交付：共享服务与多入口闭环、GPU/回退验证记录、性能基线和剩余问题清单。
 
+P7 完成记录（2026-10-19）：
+
+- 服务端 headless wgpu 两遍 compute 生成 Shaded / Face ID / Edge ID / 浮点 depth；原生和 Web 共用服务 Frame。
+- 新增 render.frames/capture，snapshot 支持 camera/revision/backend，渲染/拾取验证 document、revision、view_id/epoch 和尺寸。
+- 前后/薄层遮挡、2 px 边容差、候选歧义、旧帧和乱序拒绝；无 GPU 显式 fallback，严格 gpu 模式不静默回退。
+- Scene/版本缓存、GPU 上传字节缓存、压缩像素平面，release 小模型性能数据已记录；没有宣称 GPU 一定快于 CPU。
+- 原生 llvmpipe 和真实 Radeon 780M/Vulkan 均验证；实际视觉查看 shaded PNG 后 MCP 选边/Fillet/validate 闭环通过。
+- 实际 Codex CLI 0.162.1 host 的 MCP handshake/工具发现通过，和视觉选边、确定性测试分别记录。
+- 31 个 Rust 测试；12/12 CTest（含真实原生/浏览器/Agent host），native/WASM Clippy 和 fmt 通过。
+- 已更新 HTTPS/门户；升级及重启独立渲染入口/网关后，原 CAD PID、service ID、文档 revision/历史保留。
+- [P7 说明](viewport-p7.md)、[验证记录](validation.md) 和 artifacts/p7、p7-gui、p7-web、p7-https 保留证据。
+
 ## 后续独立工作
 
 持久 Naming、磁盘快照/日志恢复、多 body/Boolean 文档命令、特征树及更完整跨平台分发，
@@ -227,5 +239,5 @@ P6 完成记录（2026-10-18）：
 
 ## 下一次执行的起点
 
-下一阶段为 P6：复用现有 egui UI/视口与协议，增加浏览器传输、会话授权及 Web 宿主。
-P5 原生/无界面路径继续独立运行；Web 应用发布须按门户规则执行，本阶段未创建或发布 Web 应用。
+P1–P7 的迁移链已完成。下一项从持久命名、文档磁盘恢复、多 body/Boolean 或更完整跨平台验收中单独确定，
+不自动扩大本次范围。现有共享服务和已发布 WebUI 继续运行。

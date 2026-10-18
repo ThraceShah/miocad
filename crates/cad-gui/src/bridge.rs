@@ -19,22 +19,61 @@ impl Bridge {
         let (views, render_rx) = mpsc::channel::<ViewRequest>();
         let output = Output { sender, wake };
         let renders = output.clone();
+        let render_config = config.clone();
         std::thread::spawn(move || {
             while let Ok(mut job) = render_rx.recv() {
                 for latest in render_rx.try_iter() {
                     job = latest;
                 }
-                let Some(mesh) = &job.bound.scene.mesh else {
-                    continue;
-                };
-                match cad_render::render_view(
-                    mesh,
-                    &job.bound.scene.edges,
-                    job.width,
-                    job.height,
-                    job.camera,
-                ) {
+                let result = (|| -> Result<cad_render::Frame, String> {
+                    let endpoint: cad_protocol::service::ServiceEndpoint = serde_json::from_slice(
+                        &std::fs::read(render_config.options.runtime_dir.join("endpoint.json"))
+                            .map_err(|e| e.to_string())?,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if endpoint.service_id != job.service {
+                        return Err("service identity changed; reconnect".into());
+                    }
+                    let view = cad_protocol::service::Viewport {
+                        document: job.bound.document.clone(),
+                        revision: job.bound.revision,
+                        width: job.width,
+                        height: job.height,
+                        camera: serde_json::to_value(job.camera).map_err(|e| e.to_string())?,
+                        epoch: job.epoch,
+                        view_id: render_config.client_id.clone(),
+                        preview: job.preview_operation.clone(),
+                        backend: "auto".into(),
+                    };
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| e.to_string())?;
+                    let result = runtime
+                        .block_on(SharedClient::control(
+                            &endpoint,
+                            cad_protocol::service::ServiceRequest::RenderView {
+                                session: job.session.clone(),
+                                view,
+                            },
+                        ))
+                        .map_err(|e| e.to_string())?;
+                    serde_json::from_value(result).map_err(|e| e.to_string())
+                })();
+                match result {
                     Ok(frame) => {
+                        if let Err(message) = frame.validate() {
+                            renders.send(Event::Failed {
+                                ticket: None,
+                                preview: false,
+                                failure: Failure {
+                                    kind: "render_failed".into(),
+                                    message,
+                                    request: None,
+                                },
+                            });
+                            continue;
+                        }
                         let rgb = frame.viewport_rgb(job.selected.as_deref());
                         if !renders.send(Event::View {
                             epoch: job.epoch,
@@ -157,20 +196,7 @@ impl NativeTransport {
 impl Transport for NativeTransport {
     async fn reconnect(&mut self) -> Result<Context, Failure> {
         let next = if let Some(old) = &self.client {
-            let next = SharedClient::attach(
-                old.endpoint().clone(),
-                old.context().client_id.as_str(),
-                Some(old.context().session_id.as_str()),
-            )
-            .await
-            .map_err(failure)?;
-            if next.context() != old.context() {
-                return Err(failure(ClientError::Transport(
-                    "Service/worker identity changed; reopen to attach a new instance. No replay."
-                        .into(),
-                )));
-            }
-            next
+            old.reconnect(&self.config.options).await.map_err(failure)?
         } else {
             let client =
                 SharedClient::connect_or_start(&self.config.options, &self.config.client_id)

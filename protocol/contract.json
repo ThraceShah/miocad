@@ -788,6 +788,34 @@
                   "type": "null"
                 }
               ]
+            },
+            "camera": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Camera"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "backend": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "gpu",
+                "cpu"
+              ]
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -836,6 +864,62 @@
             "x",
             "y",
             "target"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "render_view"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "view": {
+              "$ref": "#/$defs/Viewport"
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "view"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "render_capture"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "render_id": {
+              "$ref": "#/$defs/Identifier"
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "render_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "render_frames"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            }
+          },
+          "required": [
+            "method",
+            "session"
           ],
           "additionalProperties": false
         }
@@ -923,7 +1007,10 @@
           "maximum": 768
         },
         "backend": {
-          "const": "cpu"
+          "enum": [
+            "cpu",
+            "wgpu"
+          ]
         },
         "mime_type": {
           "const": "image/png"
@@ -945,6 +1032,9 @@
             "edge-id": {
               "type": "string",
               "minLength": 1
+            },
+            "depth": {
+              "type": "string"
             }
           },
           "required": [
@@ -962,6 +1052,60 @@
         },
         "files": {
           "type": "object"
+        },
+        "adapter": {
+          "type": "object"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timing_ms": {
+          "type": "number"
+        },
+        "geometry_uploads": {
+          "$ref": "#/$defs/Counter"
+        },
+        "geometry_cache_hit": {
+          "type": "boolean"
+        },
+        "scene_cache_hit": {
+          "type": "boolean"
+        },
+        "edge_tolerance_px": {
+          "$ref": "#/$defs/Counter"
+        },
+        "view_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "epoch": {
+          "$ref": "#/$defs/Counter"
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "preview_operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewOperation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backend_request": {
+          "enum": [
+            "auto",
+            "gpu",
+            "cpu"
+          ]
         }
       },
       "required": [
@@ -1024,6 +1168,30 @@
           "$ref": "#/$defs/Counter"
         },
         "y": {
+          "$ref": "#/$defs/Counter"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "candidates_truncated": {
+          "type": "boolean"
+        },
+        "camera": {
+          "type": "object"
+        },
+        "width": {
+          "$ref": "#/$defs/Counter"
+        },
+        "height": {
+          "$ref": "#/$defs/Counter"
+        },
+        "view_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "epoch": {
           "$ref": "#/$defs/Counter"
         }
       },
@@ -1129,6 +1297,274 @@
           "additionalProperties": false
         }
       ]
+    },
+    "Camera": {
+      "type": "object",
+      "properties": {
+        "yaw": {
+          "type": "number"
+        },
+        "pitch": {
+          "type": "number",
+          "minimum": -1.570797,
+          "maximum": 1.570797
+        },
+        "zoom": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "pan": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "yaw",
+        "pitch",
+        "zoom",
+        "pan"
+      ],
+      "additionalProperties": false
+    },
+    "Viewport": {
+      "type": "object",
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 768
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 768
+        },
+        "camera": {
+          "$ref": "#/$defs/Camera"
+        },
+        "epoch": {
+          "$ref": "#/$defs/Counter"
+        },
+        "view_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewOperation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backend": {
+          "enum": [
+            "auto",
+            "gpu",
+            "cpu"
+          ]
+        }
+      },
+      "required": [
+        "document",
+        "revision",
+        "width",
+        "height",
+        "camera",
+        "epoch",
+        "view_id",
+        "preview",
+        "backend"
+      ],
+      "additionalProperties": false
+    },
+    "ViewportFrame": {
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/RenderSnapshot"
+        },
+        "width": {
+          "$ref": "#/$defs/Counter"
+        },
+        "height": {
+          "$ref": "#/$defs/Counter"
+        },
+        "rgb": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8388608
+        },
+        "faces": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8388608
+        },
+        "edges": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8388608
+        },
+        "face_refs": {
+          "type": "object"
+        },
+        "edge_refs": {
+          "type": "object"
+        },
+        "candidates": {
+          "type": "object"
+        },
+        "truncated": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Counter"
+          }
+        }
+      },
+      "required": [
+        "metadata",
+        "width",
+        "height",
+        "rgb",
+        "faces",
+        "edges",
+        "face_refs",
+        "edge_refs",
+        "candidates",
+        "truncated"
+      ],
+      "additionalProperties": false
+    },
+    "RenderFrameInfo": {
+      "type": "object",
+      "properties": {
+        "render_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "document": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "worker_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 768
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 768
+        },
+        "backend": {
+          "enum": [
+            "cpu",
+            "wgpu"
+          ]
+        },
+        "mime_type": {
+          "const": "image/png"
+        },
+        "camera": {
+          "type": "object"
+        },
+        "face_ids": {
+          "type": "object"
+        },
+        "edge_ids": {
+          "type": "object"
+        },
+        "adapter": {
+          "type": "object"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timing_ms": {
+          "type": "number"
+        },
+        "geometry_uploads": {
+          "$ref": "#/$defs/Counter"
+        },
+        "geometry_cache_hit": {
+          "type": "boolean"
+        },
+        "scene_cache_hit": {
+          "type": "boolean"
+        },
+        "edge_tolerance_px": {
+          "$ref": "#/$defs/Counter"
+        },
+        "view_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "epoch": {
+          "$ref": "#/$defs/Counter"
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "preview_operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PreviewOperation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backend_request": {
+          "enum": [
+            "auto",
+            "gpu",
+            "cpu"
+          ]
+        }
+      },
+      "required": [
+        "render_id",
+        "document",
+        "revision",
+        "session_id",
+        "worker_id",
+        "width",
+        "height",
+        "backend",
+        "mime_type",
+        "camera",
+        "face_ids",
+        "edge_ids"
+      ],
+      "additionalProperties": false
     }
   },
   "error_kinds": [
@@ -1999,6 +2435,27 @@
       "output_schema": {
         "$ref": "#/$defs/RenderPick"
       }
+    },
+    {
+      "method": "render_view",
+      "output_schema": {
+        "$ref": "#/$defs/ViewportFrame"
+      }
+    },
+    {
+      "method": "render_capture",
+      "output_schema": {
+        "$ref": "#/$defs/RenderSnapshot"
+      }
+    },
+    {
+      "method": "render_frames",
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/RenderFrameInfo"
+        }
+      }
     }
   ],
   "access_commands": [
@@ -2027,7 +2484,20 @@
           "directory": {
             "type": "string"
           },
-          "id": {}
+          "id": {},
+          "camera": {
+            "$ref": "#/$defs/Camera"
+          },
+          "backend": {
+            "enum": [
+              "auto",
+              "gpu",
+              "cpu"
+            ]
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          }
         },
         "required": [
           "op",
@@ -2298,6 +2768,57 @@
       },
       "preconditions": [],
       "description": "Explicitly shut down the entire shared service; memory documents will be lost."
+    },
+    {
+      "id": "render.frames",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "render.frames"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/RenderFrameInfo"
+        }
+      },
+      "preconditions": [],
+      "description": "List recently published viewport frames in this session, including view identity and camera."
+    },
+    {
+      "id": "render.capture",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "render.capture"
+          },
+          "id": {},
+          "render_id": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "required": [
+          "op",
+          "render_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$ref": "#/$defs/RenderSnapshot"
+      },
+      "preconditions": [],
+      "description": "Capture the exact committed viewport frame by ID; reject changed geometry or superseded views."
     }
   ]
 }

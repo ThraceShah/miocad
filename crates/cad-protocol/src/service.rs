@@ -39,6 +39,23 @@ pub enum ServiceRequest {
         width: u32,
         height: u32,
         directory: Option<String>,
+        #[serde(default)]
+        camera: Option<serde_json::Value>,
+        #[serde(default = "automatic")]
+        backend: String,
+        #[serde(default)]
+        revision: Option<u64>,
+    },
+    RenderView {
+        session: String,
+        view: Viewport,
+    },
+    RenderCapture {
+        session: String,
+        render_id: String,
+    },
+    RenderFrames {
+        session: String,
     },
     RenderPick {
         session: String,
@@ -79,4 +96,21 @@ pub fn validate_result(method: &str, value: &Value) -> Result<(), crate::Protoco
         .find(|spec| spec["method"] == method)
         .expect("typed service method is registered");
     crate::validate(value, &spec["output_schema"])
+}
+
+fn automatic() -> String {
+    "auto".into()
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Viewport {
+    pub document: crate::DocumentId,
+    pub revision: crate::Revision,
+    pub width: u32,
+    pub height: u32,
+    pub camera: Value,
+    pub epoch: u64,
+    pub view_id: String,
+    pub preview: Option<crate::PreviewOperation>,
+    pub backend: String,
 }

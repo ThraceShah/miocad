@@ -95,3 +95,6 @@ CAD_PLAYWRIGHT="$PWD/artifacts/browser-tools/node_modules/playwright" node tests
 
 如果测试 Chromium 继承的系统代理不支持 Tailnet，可用 CAD_TEST_PROXY 指定该本机代理；测试只在自己的 browser context 将目标 Tailnet 域名设为直连，不修改系统配置。
 当前 worker 逻辑客户端总量有 128 上限，页面身份累计耗尽时拒绝新客户端；不会为释放额度自动重启共享服务。
+
+P7 后续更新：Web 现改用服务端 wgpu/CPU Frame，Worker 处理异步 HTTP 和有界压缩平面；不再在浏览器另算 CPU ID 图。
+新增独立渲染 relay，升级不重启原文档拥有者。本文 P6 的历史实现说明保留，当前架构以 [P7 说明](viewport-p7.md) 为准。

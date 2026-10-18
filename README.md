@@ -3,13 +3,13 @@
 面向通用 Agent 的 Headless-First 精确 B-Rep CAD 系统。C++ Commander / SMLib 管理权威文档和建模，
 Rust 共享服务、CLI、MCP 与 egui 桌面/Web 提供统一接入；不绑定模型或 Agent，无界面路径不需要显示服务器。
 
-**P1–P6 已完成**：Commander、中性协议、Rust 客户端、默认共享服务，以及 Rust CLI/MCP、共享 CPU 场景渲染和可运行的 egui 桌面/Web 工作区。
-桌面、WebUI 与 Agent 为平级客户端；GPU Picking 和磁盘恢复仍属后续工作。
+**P1–P7 已完成**：Commander、中性协议、Rust 客户端、默认共享服务，以及 Rust CLI/MCP、共享 GPU/CPU 场景渲染和可运行的 egui 桌面/Web 工作区。
+桌面、WebUI 与 Agent 为平级客户端，共享 wgpu/CPU 视口与 ID 拾取；磁盘恢复仍属后续工作。
 Python 仅用于内部测试/打包，原型代码位于 tests/legacy，产品运行路径不依赖 Python。
 
 支持文档创建/列举、Box、单边 Fillet、拓扑/网格查询、失败回滚、Undo/Redo、场景截图、像素拾取及 SMB 导出。
 仅使用 SMLib，不恢复 STEP 导出或 OCCT 备选要求。Boolean 仅在内核探针验证，未作为文档命令开放。
-已有交互预览、确认/取消；Persistent Naming、磁盘恢复和 GPU 拾取仍属后续工作。
+已有交互预览、确认/取消；Persistent Naming、磁盘恢复仍属后续工作。
 
 ## 构建与验证
 
@@ -130,5 +130,9 @@ scripts/publish-web.sh
 ```
 
 Web 网关和共享 CAD daemon 使用独立 systemd unit；重启网页不销毁共享文档。
-CAD daemon 自身重启仍丢失内存文档。Web 首版通过 WebGL2 显示 Worker 中的 CPU raster 纹理，GPU 几何/拾取留待 P7。
+CAD daemon 自身重启仍丢失内存文档。Web 通过 WebGL2 显示服务端 wgpu 光照/ID 帧；不要求浏览器支持 WebGPU。
 详见 [P6 Web 说明](docs/web-p6.md)。
+
+P7 新增 `render.frames` / `render.capture`，可取得界面所用的同一服务帧；`render.snapshot` 支持相机、revision 与 backend=auto/gpu/cpu。
+headless wgpu 的 depth/Face ID/Edge ID 与 CPU fallback 已实际验证，渲染入口升级保留已有文档。
+接口、数值边界和性能说明见 [P7 共享视口](docs/viewport-p7.md)。

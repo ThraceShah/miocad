@@ -62,3 +62,11 @@ C++ 核心目录仍不包含服务/渲染扩展；产品入口拒绝未声明字
 服务管理、事件恢复、images 字段迁移与错误核对流程见 [P4 迁移指南](migration-p4.md)。
 
 P5 候选引用属于独立临时命名空间，确认应提交原 Box/Fillet 命令并重新查询正式场景，不能将候选 edge 当作正式引用。
+
+## P7 渲染扩展
+
+核心建模请求保持原语义，新增服务 RenderView/RenderCapture/RenderFrames，完整 DTO/schema 位于 contract.json。
+render.snapshot 可携带 camera、revision 和 backend；RenderPick 增加候选和视口元数据。
+RenderView 的像素平面采用 zlib/base64，ID 使用 u32 little-endian；有尺寸/解压上限，不能按旧 JSON 数字数组解码。
+配套 Rust 客户端/网关应一起更新；旧 C++ worker/文档拥有者可通过 relay 保留。
+帧协议、捕获和身份/epoch 规则见 [P7 说明](viewport-p7.md)。

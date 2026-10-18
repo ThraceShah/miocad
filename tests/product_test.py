@@ -82,6 +82,9 @@ class Products(unittest.TestCase):
         self.assertFalse(shot['isError'])
         frame=shot['structuredContent']['result']
         self.assertEqual(base64.b64decode(shot['content'][1]['data']),base64.b64decode(frame['images']['shaded']))
+        capture=self.tool(dict(op='render.capture',render_id=frame['render_id']))
+        self.assertFalse(capture['isError'])
+        self.assertEqual(capture['content'][1]['data'],frame['images']['shaded'])
         width,height,pixels=self.rgb(frame['images']['edge-id'])
         self.assertEqual((width,height),(384,384))
         index=next(i for i in range(width*height) if any(pixels[i*3:i*3+3]))

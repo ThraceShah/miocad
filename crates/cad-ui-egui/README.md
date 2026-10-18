@@ -9,5 +9,6 @@
 - lib.rs：宿主/后台之间的值类型事件和命令，不暴露内核对象。
 
 原生 cad-gui 和 WASM cad-web 复用本 crate 的 UI、Controller 和读模型；传输/调度各自在宿主实现。
-视口 CPU raster 与本机服务共用 cad-render；eframe/wgpu 的纹理显示不等于 GPU 几何渲染/拾取。
+P7 改为显示服务端 cad-render 生成的同一 wgpu/CPU Frame；本地只叠加选择/轴标等 UI。
+Frame 必须匹配 epoch、document/revision、相机和尺寸；候选图像未到达时不能确认。
 详情见 [桌面说明](../../docs/desktop-p5.md) 和 [Web 说明](../../docs/web-p6.md)。

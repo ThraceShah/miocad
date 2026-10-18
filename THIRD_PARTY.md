@@ -30,3 +30,7 @@ P6 adds axum 0.8.9 / tower-http 0.6.11 (MIT), wasm-bindgen 0.2.129 / js-sys / we
 gloo-net 0.6.0 / gloo-timers 0.3.0 (MIT OR Apache-2.0), futures-channel/util and locked HTTP dependencies.
 The packager unions native and wasm32 dependency inventories and copies available notices; Web uses eframe's glow/WebGL path.
 Playwright 1.56.1 and its Chromium fallback are internal browser test tools, not shipped application runtimes.
+
+P7 reuses pinned wgpu 27.0.1 for headless compute passes, pollster 0.4.0, bytemuck 1.25.2 (MIT OR Apache-2.0),
+and flate2 1.1.10 for bounded frame compression. These dependencies were already present transitively and are now used directly by cad-render.
+The bundle retains native/WASM crate notices and WGSL source belongs to this project; no third-party kernel source was modified.

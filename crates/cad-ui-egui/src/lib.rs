@@ -87,6 +87,9 @@ pub enum Event {
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ViewRequest {
+    pub service: String,
+    pub session: String,
+    pub preview_operation: Option<PreviewOperation>,
     pub epoch: u64,
     pub bound: BoundScene,
     pub preview: bool,

@@ -1,5 +1,5 @@
 use cad_protocol::*;
-use cad_ui_egui::{Action, Controller, Event, Failure, Transport, ViewRequest, Workspace};
+use cad_ui_egui::{Action, Controller, Event, Failure, Transport, Workspace};
 use eframe::egui;
 use futures_util::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -228,36 +228,6 @@ struct Rendered {
     selected: Option<String>,
     frame: cad_render::Frame,
 }
-#[wasm_bindgen]
-pub fn render_job(request: &str) -> Result<String, JsValue> {
-    let job: ViewRequest =
-        serde_json::from_str(request).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let mesh = job
-        .bound
-        .scene
-        .mesh
-        .as_ref()
-        .ok_or_else(|| JsValue::from_str("empty scene"))?;
-    let frame = cad_render::render_view(
-        mesh,
-        &job.bound.scene.edges,
-        job.width,
-        job.height,
-        job.camera,
-    )
-    .map_err(|e| JsValue::from_str(&e))?;
-    serde_json::to_string(&Rendered {
-        epoch: job.epoch,
-        document: job.bound.document,
-        revision: job.bound.revision,
-        preview: job.preview,
-        width: job.width,
-        height: job.height,
-        selected: job.selected,
-        frame,
-    })
-    .map_err(|e| JsValue::from_str(&e.to_string()))
-}
 struct Browser {
     workspace: Workspace,
     actions: futures_channel::mpsc::UnboundedSender<Action>,
@@ -290,13 +260,17 @@ impl Browser {
                     .as_bool()
                     != Some(true)
                 {
-                    return Err("Viewport worker failed".into());
+                    return Err(js_sys::Reflect::get(&event.data(), &"error".into())
+                        .ok()
+                        .and_then(|v| v.as_string())
+                        .unwrap_or_else(|| "Viewport worker failed".into()));
                 }
                 let value = js_sys::Reflect::get(&event.data(), &"result".into())
                     .map_err(|e| format!("{e:?}"))?
                     .as_string()
                     .ok_or("Missing rendered frame")?;
                 let rendered: Rendered = serde_json::from_str(&value).map_err(|e| e.to_string())?;
+                rendered.frame.validate()?;
                 let rgb = rendered.frame.viewport_rgb(rendered.selected.as_deref());
                 Ok(Event::View {
                     epoch: rendered.epoch,
@@ -407,8 +381,18 @@ impl eframe::App for Browser {
             if let Some(request) = self.workspace.render_request() {
                 match serde_json::to_string(&request)
                     .map_err(|e| JsValue::from_str(&e.to_string()))
-                    .and_then(|json| self.worker.post_message(&json.into()))
-                {
+                    .and_then(|json| {
+                        self.worker.post_message(&{
+                            let object = js_sys::Object::new();
+                            js_sys::Reflect::set(&object, &"job".into(), &json.into())?;
+                            let view = js_sys::Reflect::get(
+                                &web_sys::window().unwrap(),
+                                &"cadView".into(),
+                            )?;
+                            js_sys::Reflect::set(&object, &"view".into(), &view)?;
+                            object.into()
+                        })
+                    }) {
                     Ok(()) => self.rendering.set(true),
                     Err(e) => self.workspace.apply(
                         Event::Failed {

@@ -325,10 +325,14 @@ name = "cad-render"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "bytemuck",
  "cad-protocol",
+ "flate2",
  "png 0.17.16",
+ "pollster",
  "serde",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]

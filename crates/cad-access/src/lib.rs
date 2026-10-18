@@ -219,6 +219,7 @@ impl Frontend {
         if op == "commands.list" {
             return Ok(json!({"ok":true,"result":specs}));
         }
+        let options = self.config.options.clone();
         let client = self.connect().await?;
         let session = client.context().session_id.as_str().to_string();
         let text = |name: &str| command[name].as_str().unwrap().to_string();
@@ -228,10 +229,20 @@ impl Frontend {
                 document: text("document"),
                 width: command["width"].as_u64().unwrap_or(384) as u32,
                 height: command["height"].as_u64().unwrap_or(384) as u32,
+                camera: command.get("camera").cloned(),
+                backend: command["backend"].as_str().unwrap_or("auto").into(),
+                revision: command["revision"].as_u64(),
                 directory: command
                     .get("directory")
                     .and_then(Value::as_str)
                     .map(str::to_string),
+            }),
+            "render.capture" => Some(ServiceRequest::RenderCapture {
+                session: session.clone(),
+                render_id: text("render_id"),
+            }),
+            "render.frames" => Some(ServiceRequest::RenderFrames {
+                session: session.clone(),
             }),
             "render.pick" => Some(ServiceRequest::RenderPick {
                 session: session.clone(),
@@ -264,17 +275,16 @@ impl Frontend {
             } else {
                 session
             };
-            let next = SharedClient::attach(
-                client.endpoint().clone(),
-                client.context().client_id.as_str(),
-                Some(&target),
-            )
-            .await?;
-            if op == "service.reconnect" && next.context() != client.context() {
-                return Err(local(
-                    "wrong_instance: refusing to reconnect to a changed worker",
-                ));
-            }
+            let next = if op == "service.reconnect" {
+                client.reconnect(&options).await?
+            } else {
+                SharedClient::attach(
+                    client.endpoint().clone(),
+                    client.context().client_id.as_str(),
+                    Some(&target),
+                )
+                .await?
+            };
             let context = serde_json::to_value(next.context()).map_err(local)?;
             self.client = Some(next);
             return Ok(json!({"ok":true,"result":context}));

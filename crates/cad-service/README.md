@@ -1,7 +1,8 @@
 # cad-service（P3–P5）
 
 Rust 本机共享服务，管理 C++ `cad-server` worker。所有 SMLib 调用仍在 worker 内串行执行。
-没有 Python 运行依赖；P4 Rust CLI/MCP 使用此服务并共享 Rust CPU 渲染。P5 egui 桌面也直接连接此服务；尚无 HTTP 或 WebSocket。
+没有 Python 运行依赖；Rust CLI/MCP、egui 桌面和 Web 网关连接此服务，P7 共享 headless wgpu/CPU 渲染帧。
+HTTP 授权边界在 cad-web；内部 JSONL/loopback 不直接对浏览器开放。
 
 ## 运行
 
@@ -99,3 +100,6 @@ worker 请求缓存仍为 64 条/16 MiB；会话及客户端记录本阶段不�
 P4 产品入口、截图字段变化、MCP 配置及 release 包见 [迁移指南](../../docs/migration-p4.md)。
 服务按会话缓存四帧，跨入口使用；渲染查询与帧发布在同一 worker 锁下，CPU rasterization 进入 blocking task。
 边候选重叠返回 ambiguous/null，过期帧返回 stale_render，淘汰或跨会话返回 render_not_found。
+
+P7 可用 `--relay-runtime-dir DIR` 附着原拥有者，独立升级渲染入口而保留服务身份、文档和历史。
+正常停止恢复原监听地址；显式 reconnect 只允许同 service/worker。详见 [P7 说明](../../docs/viewport-p7.md)。

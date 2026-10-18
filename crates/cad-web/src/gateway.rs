@@ -293,6 +293,34 @@ async fn rpc(
         .await?,
     ))
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViewBody {
+    service: String,
+    session: String,
+    view: cad_protocol::service::Viewport,
+}
+async fn view(
+    State(g): State<Arc<Gateway>>,
+    headers: HeaderMap,
+    Json(mut body): Json<ViewBody>,
+) -> Result<Json<Value>, Error> {
+    let grant = g.grant(&headers).await?;
+    if body.service != g.endpoint.service_id || body.session != g.session {
+        return Err(FORBIDDEN);
+    }
+    body.view.view_id = grant.context.client_id.as_str().into();
+    Ok(Json(
+        g.control(
+            &grant,
+            ServiceRequest::RenderView {
+                session: g.session.clone(),
+                view: body.view,
+            },
+        )
+        .await?,
+    ))
+}
 async fn snapshot(State(g): State<Arc<Gateway>>, headers: HeaderMap) -> Result<Json<Value>, Error> {
     let grant = g.grant(&headers).await?;
     Ok(Json(
@@ -423,6 +451,7 @@ pub fn router(gateway: Gateway, assets: PathBuf) -> Router {
         .route("/api/hello", post(hello))
         .route("/api/rpc", post(rpc))
         .route("/api/snapshot", post(snapshot))
+        .route("/api/view", post(view))
         .route("/api/events", post(events))
         .route("/api/download", post(download))
         .nest_service("/pkg", ServeDir::new(assets.join("pkg")))
@@ -507,6 +536,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let endpoint: ServiceEndpoint = serde_json::from_slice(&std::fs::read(
             config.options.runtime_dir.join("endpoint.json"),
         )?)?;
+        if std::env::var("CAD_WEB_REQUIRE_RELAY").as_deref() == Ok("1") {
+            let upstream: ServiceEndpoint = serde_json::from_slice(&std::fs::read(
+                config.options.runtime_dir.join("render-upstream.json"),
+            )?)?;
+            if endpoint.address == upstream.address || endpoint.service_id != upstream.service_id {
+                return Err("render relay is not published yet".into());
+            }
+        }
         SharedClient::attach(endpoint, "web-gateway", config.session.as_deref()).await?
     } else {
         SharedClient::connect_or_start(&config.options, "web-gateway").await?
