@@ -26,7 +26,8 @@ Rust CLI：`cad-cli`，逐行发送 JSON；Rust MCP：`cad-mcp`，工具 cad_com
 当前限制：每文档单 body、单边 Fillet、CPU 近似拾取、内存历史、无 Persistent Naming/磁盘恢复。
 默认 384×384，图片尺寸可为 64..768；每会话保留最近四帧，淘汰后需重拍。
 服务身份/请求缓存/资源配额详见服务文档；不提供任意内核代码执行。
-场景截图无窗口也可运行，GUI 窗口截图和交互属于后续阶段。
+场景截图无窗口也可运行；桌面和 egui WebUI 已可操作同一文档。界面选择/相机属于界面本地状态，Agent 仍须显式传入实体引用。
+Web 入口与授权使用见 [P6 说明](../../docs/web-p6.md)。
 
 显式 service.shutdown 会停止整个共享实例并丢弃内存文档，不是关闭单个入口；先完成所需原生导出。
 Rust 示例：`cargo run -p cad-access --example box_fillet --locked -- --runtime-dir /tmp/cad-demo`。

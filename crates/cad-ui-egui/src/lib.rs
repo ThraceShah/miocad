@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
+mod controller;
 mod model;
+pub use controller::*;
 mod widgets;
 use cad_protocol::*;
 pub use model::*;
@@ -11,6 +13,10 @@ pub enum Action {
         ticket: u64,
     },
     Select(DocumentId),
+    DownloadNative {
+        ticket: u64,
+        document: DocumentId,
+    },
     Refresh {
         ticket: u64,
     },
@@ -34,6 +40,10 @@ pub struct Failure {
     pub request: Option<Box<Request>>,
 }
 pub enum Event {
+    Download {
+        ticket: u64,
+        bytes: Vec<u8>,
+    },
     Connected {
         service: String,
         session: String,
@@ -75,7 +85,7 @@ pub enum Event {
         preview: bool,
     },
 }
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ViewRequest {
     pub epoch: u64,
     pub bound: BoundScene,

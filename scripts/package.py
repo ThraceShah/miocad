@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--output',type=Path,default=ROOT/'artifacts/dist')
+    parser.add_argument('--web-only',action='store_true',help='Headless server + WASM bundle, omit desktop/CLI/MCP binaries')
     args=parser.parse_args()
     output=args.output.resolve()
     cargo=shutil.which('cargo') or str(Path.home()/'.cargo/bin/cargo')
@@ -17,13 +18,19 @@ def main():
     if not (ROOT/'build/CMakeCache.txt').exists():
         run('cmake','-S',str(ROOT),'-B',str(ROOT/'build'),'-G','Ninja','-DCMAKE_BUILD_TYPE=Release')
     run('cmake','--build',str(ROOT/'build'),'--target','cad-server','-j','6')
-    run(cargo,'build','--release','--workspace','--locked')
+    # Product Web assets and gateway are Rust; this Python file is only a build tool.
+    import os
+    env=dict(os.environ);env['PATH']=str(Path(cargo).parent)+os.pathsep+env.get('PATH','')
+    subprocess.run(['bash','scripts/build-web.sh'],cwd=ROOT,env=env,check=True)
+    if not args.web_only: run(cargo,'build','--release','--workspace','--locked')
     (output/'bin').mkdir(parents=True,exist_ok=True)
-    for name in ['cad-service','cad-cli','cad-mcp','cad-gui']:
+    (output/'launch.sh').unlink(missing_ok=True)
+    for name in (['cad-service','cad-web'] if args.web_only else ['cad-service','cad-cli','cad-mcp','cad-gui','cad-web']):
         shutil.copy2(ROOT/'target/release'/name,output/'bin'/name)
     shutil.copy2(ROOT/'build/cad-server',output/'bin/cad-server')
+    shutil.copytree(ROOT/'artifacts/web',output/'web',dirs_exist_ok=True)
     share=output/'share/ai-cad';share.mkdir(parents=True,exist_ok=True)
-    for source in ['Cargo.lock','THIRD_PARTY.md','README.md','docs/migration-p4.md','docs/desktop-p5.md','modules/cad-skills/GUIDE.md']:
+    for source in ['Cargo.lock','THIRD_PARTY.md','README.md','docs/migration-p4.md','docs/desktop-p5.md','docs/web-p6.md','modules/cad-skills/GUIDE.md']:
         shutil.copy2(ROOT/source,share/Path(source).name)
     notices=share/'licenses';notices.mkdir(exist_ok=True)
     for source in [ROOT/'third_party/usd-brep',ROOT/'third_party/json']:
@@ -34,7 +41,11 @@ def main():
     rustc=shutil.which('rustc') or str(Path(cargo).with_name('rustc'))
     host=next(line.split(': ',1)[1] for line in subprocess.check_output([rustc,'-vV'],text=True).splitlines() if line.startswith('host: '))
     # All native sources were just built. Do not fetch unrelated Apple/Android/Windows crates for notices.
-    metadata=json.loads(subprocess.check_output([cargo,'metadata','--locked','--offline','--filter-platform',host,'--format-version','1'],cwd=ROOT))
+    packages={}
+    for platform in [host,'wasm32-unknown-unknown']:
+        metadata=json.loads(subprocess.check_output([cargo,'metadata','--locked','--offline','--filter-platform',platform,'--format-version','1'],cwd=ROOT))
+        for package in metadata['packages']: packages[package['id']]=package
+    metadata={'packages':list(packages.values())}
     inventory=[]
     for package in metadata['packages']:
         if not package['source']: continue

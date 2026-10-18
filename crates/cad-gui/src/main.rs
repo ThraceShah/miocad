@@ -38,7 +38,8 @@ impl eframe::App for Desktop {
                 Action::NewDocument { ticket }
                 | Action::Refresh { ticket }
                 | Action::Reconnect { ticket }
-                | Action::Execute { ticket, .. } => (Some(*ticket), false),
+                | Action::Execute { ticket, .. }
+                | Action::DownloadNative { ticket, .. } => (Some(*ticket), false),
                 Action::Preview { ticket, .. } => (Some(*ticket), true),
             };
             if let Err(message) = self.bridge.send(action) {

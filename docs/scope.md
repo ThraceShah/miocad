@@ -10,8 +10,8 @@
 - 对外服务、MCP、CLI、桌面 GUI、WebUI 使用 Rust；Python 仅作为内部测试和开发工具。
 - Agent、桌面和 WebUI 为平级客户端，默认连接共享 CAD 服务；保留显式独立模式。
 - GUI 采用 egui / eframe，三维视口使用 wgpu；桌面与 Web 尽量复用界面与客户端代码。
-- P1–P5 已实现 Commander、Rust 共享服务/CLI/MCP、CPU 场景渲染和 egui 桌面；Python 原型仅供内部回归。
-  WebUI、GPU Picking 等仍为后续目标，不把目标误写为已实现能力。
+- P1–P6 已实现 Commander、Rust 共享服务/CLI/MCP、CPU 场景渲染和 egui 桌面/Web；Python 原型仅供内部回归。
+  GPU Picking、磁盘恢复等仍为后续目标，不把目标误写为已实现能力。
 - 所有建模修改必须失败回滚；保留独立 Document、Undo/Redo 和版本管理目标。
 - 保留 Shaded、Face ID、Edge ID，以及 VLM 视觉定位 + GPU Picking + 几何查询目标。
 - 不向 Agent 暴露内核指针，保持公共建模接口与 SMLib 实现解耦。

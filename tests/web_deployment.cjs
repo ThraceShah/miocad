@@ -1,0 +1,22 @@
+// Explicit production acceptance: creates a demo document and restarts only miocad-web.service.
+// Internal test tool; not part of the application runtime.
+const {chromium}=require(process.env.CAD_PLAYWRIGHT||'playwright');const fs=require('fs'),assert=require('assert/strict'),{spawnSync}=require('child_process');
+const url=process.env.CAD_WEB_URL||'https://example.ts.net/apps/miocad/',out='artifacts/p6-web';const pause=ms=>new Promise(r=>setTimeout(r,ms));
+function cli(command){const p=spawnSync((process.env.CAD_BIN||'target/release')+'/cad-cli',['--client-id','p6-https-verifier'],{input:JSON.stringify(command)+'\n',encoding:'utf8'});assert.equal(p.status,0,p.stderr);const r=JSON.parse(p.stdout);assert(r.ok,JSON.stringify(r));return r.result;}
+(async()=>{const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});try{
+ const context=await browser.newContext({viewport:{width:1280,height:820},...(process.env.CAD_TEST_PROXY?{proxy:{server:process.env.CAD_TEST_PROXY,bypass:new URL(url).hostname}}:{})});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ for(const resource of ['','boot.js','render-worker.js','pkg/cad_web.js','pkg/cad_web_bg.wasm','workspace/example','health']){const response=await context.request.get(url+resource);assert.equal(response.status(),200,resource);if(resource.endsWith('.wasm'))assert(response.headers()['content-type'].includes('application/wasm'));}
+ await page.goto(url);await page.screenshot({path:out+'/22-https-login.png'});
+ async function unlock(){await page.locator('#code').fill(fs.readFileSync((process.env.CAD_WEB_RUNTIME||'/run/user/1000/miocad')+'/web-access-code','utf8'));await page.locator('#connect').click();await page.locator('#workspace').waitFor({state:'visible'});await pause(1400);}
+ await unlock();const cookie=(await context.cookies()).find(c=>c.name==='miocad_web');assert(cookie.secure&&cookie.httpOnly);assert.equal(cookie.path,'/apps/miocad/');
+ async function click(x,y,op){const waiting=page.waitForResponse(r=>{try{return r.url().endsWith('/api/rpc')&&JSON.parse(r.request().postData()).command?.op===op;}catch{return false;}});await page.mouse.move(x,y);await pause(80);await page.mouse.click(x,y,{delay:60});const r=await(await waiting).json();assert(r.ok,JSON.stringify(r));await pause(700);return r;}
+ const doc=(await click(80,78,'document.create')).result.document;await click(1120,480,'model.preview');await click(1070,524,'model.box');await page.mouse.move(608,555);await pause(100);await page.mouse.click(608,555,{delay:60});await pause(700);await click(1120,424,'model.preview');await click(1070,469,'model.fillet');await page.screenshot({path:out+'/23-https-fillet.png'});
+ const before=cli({op:'service.info'}).service_id;const state=cli({op:'document.state',document:doc});assert.equal(state.revision,2);assert(state.data.valid);
+ const restart=spawnSync('systemctl',['--user','restart','miocad-web.service'],{encoding:'utf8'});assert.equal(restart.status,0,restart.stderr);await pause(1500);await page.screenshot({path:out+'/24-gateway-restart-offline.png'});assert.equal(cli({op:'service.info'}).service_id,before);assert.equal(cli({op:'document.state',document:doc}).revision,2);
+ await page.reload();await page.locator('#login').waitFor({state:'visible'});await unlock();await page.screenshot({path:out+'/25-https-reauthed-preserved-model.png'});
+ // A second page shares documents but obtains a separate client identity.
+ const page2=await context.newPage();await page2.goto(url+'workspace/example');await page2.locator('#workspace').waitFor({state:'visible'});await pause(1500);await page2.screenshot({path:out+'/26-nested-second-page.png'});
+ assert.deepEqual(errors,[]);const portal=await context.request.get('https://example.ts.net/_portal/api/apps');assert((await portal.json()).some(a=>a.slug==='miocad'&&a.online));
+ fs.writeFileSync(out+'/deployment.json',JSON.stringify({passed:true,url,portal:'https://example.ts.net/',document:doc,service_id:before,state,cookie_attributes:{secure:cookie.secure,httpOnly:cookie.httpOnly,path:cookie.path,sameSite:cookie.sameSite},gateway_restart_preserved:true,browser:browser.version(),errors},null,2));
+ console.log(JSON.stringify({passed:true,url,document:doc,gateway_restart_preserved:true}));
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

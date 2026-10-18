@@ -1,0 +1,37 @@
+[package]
+name = "cad-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cad-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cad-client.workspace = true
+cad-access.workspace = true
+tokio.workspace = true
+axum = "=0.8.9"
+tower-http = { version = "0.6", features = ["fs"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cad-ui-egui.workspace = true
+cad-render.workspace = true
+eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "glow"] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Request", "RequestInit", "RequestCredentials", "Response", "Headers", "Location", "Performance", "Storage"] }
+gloo-net = "0.6"
+gloo-timers = { version = "0.3", features = ["futures"] }
+futures-channel = "0.3"
+futures-util = "0.3"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

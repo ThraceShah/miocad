@@ -336,3 +336,51 @@ GUI 原生验收和 release 包均不包含 Python 产品服务；gui_probe.py /
 P5 release 最终复验：使用 artifacts/dist/bin 中的匹配程序重跑五组产品测试和完整原生窗口验收均通过。
 归档约 14.5 MiB，五个程序、无 .py 文件；检查确认默认字体 UFL/OFL 和 supplemental egui 许可均随包提供。
 所有测试窗口、Xvfb 和服务已关闭。artifacts/dist.tar.gz.sha256 为最终归档校验值。
+
+## P6 WebUI（2026-10-18）
+
+新增 Rust cad-web：原生 HTTP gateway + WASM egui 宿主。共享 UI/Controller/DTO/renderer，
+原生 Bridge 只保留线程/Tokio/SharedClient 调度；SMLib/Commander 代码未修改。
+
+构建和契约：
+
+- Rust 1.90 + wasm32-unknown-unknown、eframe/egui 0.33.3、wasm-bindgen/CLI 0.2.129 实际 release 构建。
+- 原生/WASM Clippy -D warnings、cargo fmt --all --check 通过。
+- cargo test --workspace：26 个测试通过。网关新增授权到期/页面身份拒绝，以及真实 worker/Agent 事务集成测试。
+- 配置 CAD_ENABLE_GUI_TESTS=ON / CAD_ENABLE_WEB_TESTS=ON 后 CTest 11/11 通过（57 秒），
+  包含既有内核/协议/CLI/MCP、真实 Xvfb 原生窗口和真实 Chromium canvas 操作。
+- 授权测试覆盖无 cookie、错误/缺失/null Origin、跨 session/client、服务器路径导出、内部生命周期信封拒绝，
+  限流、注销、到期；两个页面 client ID 不同且共用 worker。Web download 只接受 document，额外 path 字段拒绝。
+
+浏览器测试 tests/web_smoke.cjs，Chromium 141.0.7390.37 / Playwright 1.56.1，1280×820 / DPR=1：
+
+创建文档、Box 候选/取消（revision=0）、确认（revision=1，volume=1000）；点击可见前侧边，
+Fillet 预览不修改文档、确认后 revision=2、valid=true、volume≈997.8539818。
+旋转改变图像而没有新事件；Undo/Redo 到 revision=3/4。浏览器真实下载 model.smb，未显示/接受服务器路径。
+Agent 替换 Box 后候选失效，旧确认不提交；断网后缓存只读，重连拿到 Agent 已修改的 revision=6。
+Playwright 在 kernel 完成 model.box 后丢弃 HTTP 回执：UI 显示 outcome_unknown/Offline，权威文档已到 revision=7；
+Reconnect 查询原 request.status 后显示已完成，保持 revision=7，无重放。刷新页面恢复同文档，Lock 撤销授权。
+已查看 Fillet/旋转、unknown outcome 和核对恢复的实际 PNG；pageerror 列表为空。
+
+上线验证 tests/web_deployment.cjs：
+
+- https://example.ts.net/apps/miocad/、JS、模块 Worker、WASM MIME、health、嵌套路由均 200。
+- 真实 HTTPS Chromium 解锁、创建 Box/Fillet；cookie Secure/HttpOnly=true，SameSite=Strict，Path=/apps/miocad/。
+- 默认 runtime-dir 与 CLI/Agent 一致；保留一份演示文档 6b7e82d8-1c96dd3f-dbc6c95d-9ff22e0-，revision=2。
+- systemctl --user restart miocad-web 后 CAD service ID 和原文档 revision/valid 均未改变；
+  原网页授权被撤销，重新解锁恢复场景。第二标签页从嵌套 URL 进入同一工作区。
+- portalctl list 收录 miocad 且 online=true；独立 miocad-web / miocad-cad-service 均 enabled/active。
+- 门户大文件 base64 正则导致 deploy_service 栈溢出，尚未创建应用 unit；检查日志后改用技能允许的持久本机服务 + proxy，
+  未修改门户。其代理统一改写 cookie/Location，因此采用 strip-prefix=true + CAD_WEB_STRIP_PREFIX=1，避免重复前缀。
+- 初始测试 Chromium 继承本机系统代理，Tailnet TLS 被代理关闭；仅在该测试 browser context 为 Tailnet 域名设置直连绕过后通过，
+  没有修改系统代理、Tailscale 配置或门户。HTTPS 证书正常核验，没有 ignoreHTTPSErrors。
+
+artifacts/p6-web 保存 PNG、acceptance.json、deployment.json、browser-workflow.smb 及网关日志，不入 Git。
+打包合并 native/wasm32 依赖许可及字体许可，原生完整包 6 个程序 + WASM，无 .py；Web 包约 27 MiB。
+
+边界：CPU raster/ID picking，WebGL2 仅显示 egui 纹理，GPU 几何路径仍在 P7；复杂模型/移动设备/高 DPR 未验收。
+浏览器每授权 8 个页面身份，worker 逻辑 client 总量仍沿用 128 上限；长期开关页面可能耗尽额度，届时拒绝新客户端，
+不自动重启服务或丢文档。共享 origin 的其他门户应用属于同一信任边界；没有新增公网多租户账号系统。
+CAD daemon 自身重启仍失去内存文档；Web 重启保留文档。内核没有导入文档接口，因此没有伪上传入口，也无 STEP/OCCT。
+
+本阶段只本地 Git 提交，不推送；保留生产 Web/CAD 两个持久服务，关闭开发验收服务/窗口。

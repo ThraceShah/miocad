@@ -9,7 +9,7 @@ fn world(p: &[cad_protocol::Finite; 3]) -> [f64; 3] {
     p.map(|n| n.get())
 }
 /// View-local orthographic orbit camera; never changes a CAD document revision.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Camera {
     pub yaw: f64,
     pub pitch: f64,
@@ -77,6 +77,7 @@ fn id_for(map: &mut BTreeMap<String, u32>, reference: &str) -> u32 {
     let next = map.len() as u32 + 1;
     *map.entry(reference.into()).or_insert(next)
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Frame {
     pub metadata: Value,
     rgb: Vec<u8>,

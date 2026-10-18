@@ -5,6 +5,7 @@ const MUTED: Color32 = Color32::from_rgb(141, 157, 174);
 const CANVAS: Color32 = Color32::from_rgb(242, 245, 248);
 pub struct Workspace {
     pub model: Model,
+    pub browser_downloads: bool,
     pub service: String,
     pub session: String,
     pub cursor: u64,
@@ -21,6 +22,7 @@ impl Default for Workspace {
     fn default() -> Self {
         Self {
             model: Model::default(),
+            browser_downloads: false,
             service: String::new(),
             session: String::new(),
             cursor: 0,
@@ -37,6 +39,7 @@ impl Default for Workspace {
 }
 impl Workspace {
     pub fn theme(ctx: &egui::Context) {
+        ctx.set_theme(egui::Theme::Dark);
         let mut style = (*ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
         style.visuals.panel_fill = Color32::from_rgb(25, 32, 40);
@@ -57,6 +60,15 @@ impl Workspace {
     }
     pub fn apply(&mut self, event: Event, ctx: &egui::Context) {
         match event {
+            Event::Download { ticket, .. } => {
+                self.apply(
+                    Event::Completed {
+                        ticket,
+                        message: "SMB downloaded".into(),
+                    },
+                    ctx,
+                );
+            }
             Event::Connected { service, session } => {
                 self.service = service;
                 self.session = session;
@@ -441,16 +453,22 @@ impl Workspace {
         }
         ui.add_space(12.);
         egui::CollapsingHeader::new("Native export").show(ui, |ui| {
-            ui.label(
-                RichText::new("SMB path (parent directory must exist)")
-                    .size(11.)
-                    .color(MUTED),
-            );
-            ui.text_edit_singleline(&mut self.model.export_path);
+            if !self.browser_downloads {
+                ui.label(
+                    RichText::new("SMB path (parent directory must exist)")
+                        .size(11.)
+                        .color(MUTED),
+                );
+                ui.text_edit_singleline(&mut self.model.export_path);
+            }
             if ui
                 .add_enabled(
                     self.model.can_edit() && self.model.current().is_some_and(|d| !d.data.empty),
-                    egui::Button::new("Export SMB"),
+                    egui::Button::new(if self.browser_downloads {
+                        "Download SMB"
+                    } else {
+                        "Export SMB"
+                    }),
                 )
                 .clicked()
             {
@@ -460,11 +478,18 @@ impl Workspace {
                     path: self.model.export_path.clone(),
                 };
                 let ticket = self.model.begin_job("Exporting SMB");
-                actions.push(Action::Execute {
-                    ticket,
-                    command,
-                    label: "SMB exported".into(),
-                });
+                if self.browser_downloads {
+                    actions.push(Action::DownloadNative {
+                        ticket,
+                        document: self.model.current().unwrap().document.clone(),
+                    });
+                } else {
+                    actions.push(Action::Execute {
+                        ticket,
+                        command,
+                        label: "SMB exported".into(),
+                    });
+                }
             }
         });
         ui.add_space(8.);

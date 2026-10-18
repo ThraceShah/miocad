@@ -6,7 +6,7 @@ pub enum Mode {
     Box,
     Fillet,
 }
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct BoundScene {
     pub document: DocumentId,
     pub revision: Revision,

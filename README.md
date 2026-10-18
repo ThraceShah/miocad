@@ -1,15 +1,15 @@
 # AI-CAD
 
 面向通用 Agent 的 Headless-First 精确 B-Rep CAD 系统。C++ Commander / SMLib 管理权威文档和建模，
-Rust 共享服务、CLI、MCP 与 egui 桌面提供统一接入；不绑定模型或 Agent，无界面路径不需要显示服务器。
+Rust 共享服务、CLI、MCP 与 egui 桌面/Web 提供统一接入；不绑定模型或 Agent，无界面路径不需要显示服务器。
 
-**P1–P5 已完成**：Commander、中性协议、Rust 客户端、默认共享服务，以及 Rust CLI/MCP、共享 CPU 场景渲染和可运行的 egui 桌面工作区。
-桌面与 Agent 为平级客户端；WebUI、GPU Picking 和磁盘恢复仍属后续工作。
+**P1–P6 已完成**：Commander、中性协议、Rust 客户端、默认共享服务，以及 Rust CLI/MCP、共享 CPU 场景渲染和可运行的 egui 桌面/Web 工作区。
+桌面、WebUI 与 Agent 为平级客户端；GPU Picking 和磁盘恢复仍属后续工作。
 Python 仅用于内部测试/打包，原型代码位于 tests/legacy，产品运行路径不依赖 Python。
 
 支持文档创建/列举、Box、单边 Fillet、拓扑/网格查询、失败回滚、Undo/Redo、场景截图、像素拾取及 SMB 导出。
 仅使用 SMLib，不恢复 STEP 导出或 OCCT 备选要求。Boolean 仅在内核探针验证，未作为文档命令开放。
-Persistent Naming、磁盘恢复、交互预览和 GPU 拾取仍属后续工作。
+已有交互预览、确认/取消；Persistent Naming、磁盘恢复和 GPU 拾取仍属后续工作。
 
 ## 构建与验证
 
@@ -112,3 +112,23 @@ python3 scripts/package.py
 - [核心命令与协议](docs/protocol.md)、[中性契约与重试语义](protocol/README.md)
 - [Rust 共享服务](crates/cad-service/README.md)、[客户端 SDK](crates/cad-client/README.md)
 - [Agent 使用指南](modules/cad-skills/GUIDE.md)、[验证记录](docs/validation.md)
+
+## egui WebUI
+
+入口：[AI-CAD WebUI](https://example.ts.net/apps/miocad/)，[栖点门户](https://example.ts.net/)。
+首次输入本机 CAD runtime-dir 的 `web-access-code`（0600 文件），默认路径 `/run/user/1000/miocad/web-access-code`。
+网页和桌面/CLI/MCP 默认共享会话；相机、选择和草稿各自独立。网页导出使用 Download SMB。
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+scripts/build-web.sh
+# 本地启动参数、授权边界及浏览器验收见 docs/web-p6.md
+python3 scripts/package.py --web-only --output artifacts/web-bundle
+# 按用户指定的 tailnet-publish 流程持久部署并收录门户
+scripts/publish-web.sh
+```
+
+Web 网关和共享 CAD daemon 使用独立 systemd unit；重启网页不销毁共享文档。
+CAD daemon 自身重启仍丢失内存文档。Web 首版通过 WebGL2 显示 Worker 中的 CPU raster 纹理，GPU 几何/拾取留待 P7。
+详见 [P6 Web 说明](docs/web-p6.md)。

@@ -1,6 +1,6 @@
 # 共享服务与 Rust/egui 改造计划
 
-日期：2026-10-18。状态：P1–P5 已实现并验收；P6–P7 尚待实施。
+日期：2026-10-18。状态：P1–P6 已实现并验收；下一阶段 P7。
 依据：[架构决策](architecture.md) 与 [项目范围](scope.md)。
 阶段顺序按依赖排列，不作未经验证的工期承诺。每阶段通过验收后提交本地 Git commit 并报告，
 不擅自推送。迁移中保持现有 SMLib 能力可运行，按实际代码更新状态与使用说明。
@@ -8,7 +8,7 @@
 ## 0. 基线与执行原则
 
 迁移前基线：SMLib、C++ JSONL worker、Python MCP/CLI、Python CPU 预览。
-当前 P5 已具有 Rust 共享服务、CLI/MCP、CPU 场景渲染与 egui 桌面工作区；尚无 WebUI。
+当前 P6 已具有 Rust 共享服务、CLI/MCP、CPU 场景渲染与 egui 桌面/Web 工作区。
 P1 的验收结果见下节；不把既有 Python 原型计作 Rust 阶段完成。
 
 - 优先证明同一命令的结果、回滚和引用语义，再扩大界面功能。
@@ -171,12 +171,12 @@ P5 完成记录（2026-10-18）：
 
 依赖 P5，浏览器协议适配可在 P2/P3 预先验证。目标：复用 UI，连接服务端 C++ 核心。
 
-- [ ] 将 UI/视口代码与原生窗口、文件和进程能力隔离，建立 WASM 宿主。
-- [ ] 完成浏览器到 Rust 服务的异步传输与状态同步；不要求 SMLib 运行在 WASM 中。
-- [ ] 补齐会话授权、来源检查、断线反馈与重新同步；不直接暴露内部 worker。
-- [ ] 采用浏览器文件/下载接口，避免把任意服务端路径直接作为网页文件选择。
-- [ ] 遵循用户的 tailnet-publish 指令：实施时读取指定 SKILL.md，处理 base path、持久服务和门户收录。
-- [ ] 默认发布目标为 `https://example.ts.net/apps/<slug>/`，slug 在实施时确定；本次不部署。
+- [x] 将 UI/视口代码与原生窗口、文件和进程能力隔离，建立 WASM 宿主。
+- [x] 完成浏览器到 Rust 服务的异步传输与状态同步；不要求 SMLib 运行在 WASM 中。
+- [x] 补齐会话授权、来源检查、断线反馈与重新同步；不直接暴露内部 worker。
+- [x] 采用浏览器文件/下载接口，避免把任意服务端路径直接作为网页文件选择。
+- [x] 遵循用户的 tailnet-publish 指令：实施时读取指定 SKILL.md，处理 base path、持久服务和门户收录。
+- [x] 默认发布目标为 `https://example.ts.net/apps/<slug>/`，slug 为 miocad，已实际发布并收录门户。
 
 验收：
 
@@ -187,6 +187,17 @@ P5 完成记录（2026-10-18）：
 - 按发布技能验证 HTTPS、base path 静态资源/连接、服务重启存活与门户入口。
 
 交付：WebUI、浏览器适配和实际发布验证记录。
+
+P6 完成记录（2026-10-18）：
+
+- 新增 cad-web Rust HTTP gateway + egui WASM 宿主，桌面/Web 共用 cad-ui-egui Controller<T: Transport>。
+- 默认会话授权、精确 Origin、自定义请求头、HttpOnly/SameSite/Secure cookie、独立页面身份、配额与过期/注销；内部 endpoint token 不进入浏览器。
+- 同源异步 HTTP + 450 ms 事件轮询，重连快照与 request.status 核对；真实丢失建模回执没有重复提交。
+- Web Worker 复用 CPU raster/picking，基于 epoch/revision 拒绝旧帧；SMB 通过私有临时目录和浏览器 Blob 下载，无任意服务端路径。
+- 11/11 CTest（包含桌面及真实 Chromium）、26 个 Rust 测试、native/WASM Clippy 和 fmt 均通过。
+- HTTPS、JS/WASM/Worker/API、嵌套页面、cookie Path、门户在线检查通过；网关重启后原 service/文档/revision 保留。
+- 门户大型 base64 校验栈溢出，检查日志后改用技能允许的独立 systemd + proxy；未改门户/内核代码。
+- [Web 说明](web-p6.md)、[验证记录](validation.md) 和 artifacts/p6-web 保存截图/JSON；无 Python 产品运行时。
 
 ## P7：共享视口、GPU Picking 与整体验收
 

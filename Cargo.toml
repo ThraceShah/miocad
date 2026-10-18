@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cad-protocol", "crates/cad-client", "crates/cad-service", "crates/cad-render", "crates/cad-access", "crates/cad-cli", "crates/cad-mcp", "crates/cad-ui-egui", "crates/cad-gui"]
+members = ["crates/cad-protocol", "crates/cad-client", "crates/cad-service", "crates/cad-render", "crates/cad-access", "crates/cad-cli", "crates/cad-mcp", "crates/cad-ui-egui", "crates/cad-gui", "crates/cad-web"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,7 +9,7 @@ rust-version = "1.90"
 publish = false
 
 [workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 tokio = { version = "1", features = ["process", "io-util", "time", "rt", "macros", "net", "sync", "signal", "io-std"] }
 cad-protocol = { path = "crates/cad-protocol" }

@@ -25,3 +25,8 @@ The packager also includes nested notices and epaint_default_fonts font license 
 GUI test Xvfb/XTest/ffmpeg are internal verification tools, not bundled product runtimes.
 
 Some egui crate archives omit their workspace-root license files. Unmodified upstream 0.33.3 license texts are retained in third_party/notices/egui-0.33.3 and copied into the bundle.
+
+P6 adds axum 0.8.9 / tower-http 0.6.11 (MIT), wasm-bindgen 0.2.129 / js-sys / web-sys (MIT OR Apache-2.0),
+gloo-net 0.6.0 / gloo-timers 0.3.0 (MIT OR Apache-2.0), futures-channel/util and locked HTTP dependencies.
+The packager unions native and wasm32 dependency inventories and copies available notices; Web uses eframe's glow/WebGL path.
+Playwright 1.56.1 and its Chromium fallback are internal browser test tools, not shipped application runtimes.

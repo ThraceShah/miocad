@@ -1,6 +1,6 @@
 # 共享服务、Commander 与 Rust 客户端架构
 
-日期：2026-10-18。状态：核心方向已确认；P1–P5 Commander、共享服务、Rust CLI/MCP、CPU 场景渲染与 egui 桌面已实现，其余目标尚待迁移。
+日期：2026-10-18。状态：核心方向已确认；P1–P6 Commander、共享服务、Rust CLI/MCP、CPU 场景渲染与 egui 桌面/Web 已实现，其余目标尚待迁移。
 本文取代首轮 MVP 的目标架构描述；现有实现情况见第 2 节。
 实施顺序与验收门槛见 [实施计划](implementation-plan.md)。
 
@@ -23,14 +23,14 @@ Rust 迁移的主要收益是统一入口实现、复用类型与 SDK、减少�
 
 ## 2. 当前实现基线
 
-迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1–P5 后的现状如下：
+迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1–P6 后的现状如下：
 
 - C++ `cad-commander` 管理文档、注册/校验/分发命令并组织响应；`cad-server` 仅负责 JSONL 收发。
 - `cad-document` 保存内存快照与 Undo/Redo；建模采用 copy / validate / commit，Commander 暂存文档并在响应构造成功后发布。
 - Rust MCP/CLI 通过 cad-access / cad-client 默认连接共享服务；原 Python 实现已移至 tests/legacy，旧启动路径仅提示迁移。
 - Rust cad-render 由共享服务统一调用，帧缓存跨 CLI/MCP 共享；CPU 场景截图无需窗口，新增 egui 桌面，原生宿主/异步线程与共享 UI 分离。
 - 已有 Box、单边 Fillet、拓扑查询、截图、原生 SMB 导出；Boolean 在内核探针层验证。
-- 已有 Rust cad-protocol / cad-client / cad-service，默认共享服务、隔离会话、显式 attach、文档快照及带游标的事件拉取；已有 egui 桌面；尚无 WebUI、GPU Picking、持久 Naming 或磁盘恢复。
+- 已有 Rust cad-protocol / cad-client / cad-service，默认共享服务、隔离会话、显式 attach、文档快照及带游标的事件拉取；已有 egui 桌面/WebUI；尚无 GPU Picking、持久 Naming 或磁盘恢复。
 
 P1 增加 commands.list 与错误 kind；P2 将描述移到中性 contract.json，加入异步 Rust 客户端、版本与重试契约。
 通过双端共用样例、类型覆盖和真实 worker 校核，而非代码生成。P3 加入本机 loopback 共享服务、OS 文件锁、实例发现、内存事件与实际重连核对；P4 已替换 Rust MCP/CLI，
@@ -201,3 +201,12 @@ cad-ui-egui 只管理 UI/读模型/动作，cad-gui 负责原生宿主和 cad-cl
 不通过修改正式文档再 Undo 来预览。候选使用不同引用命名空间，确认后重新读取正式场景。
 相机/选择/悬停/草稿只在窗口内；UI 结果以文档 revision、ticket、视图 epoch 匹配，拒绝迟到或过期结果。
 详情见 [P5 桌面与线程设计](desktop-p5.md)。
+
+## P6 实现补充
+
+cad-ui-egui::Controller<T: Transport> 是桌面/Web 共用的异步命令策略；原生 Bridge 和 WASM 宿主只提供调度及传输。
+Web 的 Rust HTTP gateway 将浏览器授权限定到指定 service/worker/session，各页面独立 client ID；
+不暴露内部服务 token、生命周期接口或任意服务器文件路径。默认采用同源 POST + 事件轮询，避免为首版引入第二套 WebSocket 事件语义。
+浏览器 CPU raster 在模块 Web Worker 内执行，主线程应用带 epoch/revision 的帧；WebGL2 只负责 egui/纹理显示。
+Web 与 CAD daemon 使用独立持久进程；网关 attach-only，网页重部署不拥有共享文档寿命。
+授权、下载、安全边界、构建和发布见 [P6 说明](web-p6.md)。
