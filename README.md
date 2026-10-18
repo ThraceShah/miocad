@@ -4,6 +4,13 @@
 CLI 与 MCP 使用同一命令协议，没有专用 LLM 或特定 Agent 依赖。内核使用 SMLib，
 公共 Shape / IKernel 接口不包含第三方类型。
 
+## 已确认的改造方向
+
+默认共享 CAD 服务，Agent/MCP/CLI、桌面 GUI 和 WebUI 为平级入口；C++ 核心抽取 Commander，
+对外服务及客户端统一使用 Rust，桌面/Web 采用 egui / eframe，视口采用 wgpu。
+Python 仅保留为内部脚本和测试工具。**这些是目标架构，当前代码尚未迁移**；下方运行命令仍对应现有原型。
+详见 [架构决策](docs/architecture.md) 和 [分阶段实施计划](docs/implementation-plan.md)。
+
 ## 当前状态
 
 已完成：官方 SMLib 调查、固定版本、原版内核独立编译、能力探针、九模块 MVP 架构，
@@ -97,7 +104,8 @@ python3 /absolute/path/ai-cad/modules/cad-mcp/server.py
 
 - [当前项目范围与验收要求](docs/scope.md)
 - [SMLib 调查、许可证、平台、生命周期与命名](docs/investigation.md)
-- [MVP 架构与技术决策](docs/architecture.md)
+- [共享服务、Commander 与 Rust/egui 架构决策](docs/architecture.md)
+- [改造实施计划与验收门槛](docs/implementation-plan.md)
 - [协议和失败语义](docs/protocol.md)
 - [Agent 使用指南](modules/cad-skills/GUIDE.md)
 - [验证结果与已知限制](docs/validation.md)

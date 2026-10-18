@@ -1,55 +1,191 @@
-# MVP 架构 / ADR-001
+# 共享服务、Commander 与 Rust 客户端架构
 
-状态：首轮设计；内核使用 SMLib；进程内串行、进程间并发；毫米单位。
+日期：2026-10-18。状态：核心方向已确认，代码尚未按本文迁移。
+本文取代首轮 MVP 的目标架构描述；现有实现情况见第 2 节。
+实施顺序与验收门槛见 [实施计划](implementation-plan.md)。
+
+## 1. 已确认的决策
+
+| 决策 | 约束 |
+|---|---|
+| Agent-Agnostic、Headless-First | 不开发专用 LLM，不绑定特定 Agent；服务无 GUI 也能运行 |
+| 默认共享 CAD 服务 | 桌面 GUI、WebUI、MCP、CLI 默认连接同一服务，可显式选择同一会话和文档 |
+| 接入层平级 | Agent 不通过 GUI 才能建模，GUI 不通过 Agent 才能操作；入口共享同一命令语义 |
+| C++ 核心 Commander | 保留 C++17、SMLib、文档、事务、建模和拓扑；抽取统一应用门面 |
+| Rust 对外组件 | 服务入口、客户端 SDK、MCP、CLI、桌面 GUI、WebUI 使用 Rust |
+| egui GUI | egui 负责界面；eframe 负责桌面/Web 宿主；wgpu 用于三维视口和后续 GPU Picking |
+| Python 仅供内部工具 | 可用于测试、数据生成和开发脚本；最终对外运行及发布包不依赖 Python |
+| 只使用 SMLib | 不恢复 OCCT 备选路线；不恢复 STEP 导出要求 |
+| 保留建模正确性要求 | 不暴露内核指针，失败回滚，Undo/Redo，版本前置条件，过期引用拒绝 |
+
+Rust 迁移的主要收益是统一入口实现、复用类型与 SDK、减少维护边界；不据此承诺建模提速。
+几何性能仍取决于 SMLib、数据交换和渲染。默认共享不等于默认多人协同编辑，也不等于自动共享所有文档。
+
+## 2. 当前实现基线
+
+当前代码来自 4062637 所在的 SMLib MVP 阶段：
+
+- C++ `cad-server` 使用 JSONL，在 `main.cpp` 中管理文档、分发命令并组织响应。
+- `cad-document` 保存内存快照与 Undo/Redo；修改采用 copy / validate / commit。
+- Python MCP、CLI 通过 `scripts/client.py` 各自启动 C++ worker，尚不共享会话。
+- CPU 渲染与拾取位于 Python 接入代码中，尚无交互式 GUI。
+- 已有 Box、单边 Fillet、拓扑查询、截图、原生 SMB 导出；Boolean 在内核探针层验证。
+- 尚无 Rust workspace、常驻共享服务、事件订阅、egui GUI、GPU Picking、持久 Naming 或磁盘恢复。
+
+本文中的 Rust 模块、共享服务和新协议均为目标，不表示已实现。
+迁移期间的 Python 入口属于临时兼容路径，不能作为最终发布方案。
+
+## 3. 参考项目及采用原则
+
+源码调查快照：
+
+- [PhotoCraft](https://github.com/storytold/photocraft/tree/8d2e615ab93d424c4ec25ab15b4edb5368d1f9a6)：
+  `CommandSpec`、`Session`、命令日志、快照后台任务、egui 桌面/Web 复用。
+- [CADCraft](https://github.com/storytold/cadcraft/tree/b23d362f6af1dd77e319728f1d85882b098626fe)：
+  `CommandSpec`、交互命令状态机、预览、MCP Headless/Remote 两种访问方式、可替换 UI。
+
+采用：统一命令、薄客户端、显式交互状态、共享业务语义、按依赖检查分层。
+适配：我们的核心仍是 C++/SMLib；Web 首版连接服务端精确建模核心，不要求 SMLib 编译为 WASM。
+不照搬：像素 tile 写时复制、绘图实体数据库、纯 Rust 内核路线，或参考项目的全部功能规模。
+参考项目的声明与实现可能有差异，应以固定提交的相关源码为依据，不将其性能或稳定性声明视作本项目保证。
+
+## 4. 逻辑结构与语言边界
 
 ```text
-任意 Agent → MCP stdio / CLI → JSON command → cad-server
-                                       → cad-modeling → cad-document → cad-kernel
-                                       → cad-topology                 → SMLib
-                                       → cad-render ← neutral Mesh / Edge polylines
+Rust MCP / CLI       Rust egui 桌面       Rust egui WebUI（WASM）
+       │                    │                       │
+       └──────── 统一协议 / Rust 客户端 SDK ─────────┘
+                            │
+                    Rust 共享服务入口
+              连接 / 会话路由 / 请求跟踪 / 事件分发
+                            │ 内部进程协议
+                    C++ CAD core worker
+                       C++ Commander
+              命令发现 / 查询 / 执行 / 事务 / 调度
+                            │
+              Document / Modeling / Topology
+                            │
+                      SMLib 适配层
 ```
 
-| 模块 | 职责与边界 |
+这是依赖和访问关系，不要求每个模块单独部署。首版可以由一个 Rust 服务管理一个 C++ worker，
+worker 内串行处理内核调用，管理多个文档；后续再按隔离需求增加 worker。
+SMLib context 的约束不因引入 Rust 异步运行时而改变，不能直接并发调用同一个内核 context。
+
+### 4.1 Rust 对外服务
+
+负责连接管理、服务发现/启动、会话到 worker 的路由、请求 ID、响应和事件传递、客户端断连处理。
+业务修改的最终校验、权威文档和 Undo/Redo 均留在 C++ 核心。
+Rust 可以提前校验输入结构，但不能另写一套 Fillet 参数规则、拓扑身份或事务实现。
+
+### 4.2 C++ Commander
+
+Commander 是统一应用门面，内部拆分注册表、处理器、任务调度和会话服务，避免成为单个巨型类。
+它不包含网络协议收发、egui 控件、MCP 格式、文件对话框或具体几何算法。
+
+| 能力 | 职责 |
 |---|---|
-| cad-kernel | IKernel / Shape 接口；唯一包含第三方类型的实现；创建、copy、fillet、validate、mesh、native export |
-| cad-document | 独立文档，单 body 首版；不可变快照、copy/validate/commit；undo/redo；revision 单调递增 |
-| cad-modeling | 有单位、范围、版本前置条件的建模命令，不把第三方调用透传给 Agent |
-| cad-topology | 文档/revision/entity token，几何摘要；首版过期即拒绝，后续加入 lineage resolver |
-| cad-render | 中性网格、face 标签、edge 折线；headless 截图和拾取；首版 CPU，后续 GPU ID buffer |
-| cad-server | 独立 C++ 进程、JSONL 命令、多个文档、结构化错误；不依赖任何 LLM |
-| cad-mcp | stdio JSON-RPC MCP 薄桥，工具发现与调用，复用相同服务命令 |
-| cad-cli | stdio batch 与 demo，便于任意 Agent 直接调用与组合脚本 |
-| cad-skills | 统一建模指南、引用有效期、失败处理、host 配置示例 |
+| 命令发现 | 稳定命令 ID、输入/输出 schema、单位、可用条件和禁用原因 |
+| 校验 | 文档存在、revision、实体引用、参数范围、业务前置条件 |
+| 修改执行 | 在候选副本上操作，内核验证后提交，失败保持模型与历史不变 |
+| 查询 | 返回文档摘要、拓扑与显示数据；查询不创建 Undo 步骤 |
+| 任务 | 跟踪耗时操作的状态与结果，提供可支持的取消语义 |
+| 事件 | 提交后产生带文档 ID/revision 的变化事件，由 Rust 服务转发 |
 
-## 状态与事务
+几何算法继续由 `cad-modeling` / `cad-kernel` 实现。文档历史继续由 `cad-document` 管理。
 
-每个 Document 拥有不可变历史 Shape 快照。修改先创建候选，深拷贝当前 BRep，
-在候选上修改并校验，成功后一次提交。失败不更新 body、revision、历史或 redo 分支。
-undo/redo 恢复快照并递增 revision；新编辑只在成功时截断 redo。
-实体引用包含 document + revision + kind + token；即使 undo 回相同几何也不能接受旧 token。
+### 4.3 egui、视口与平台宿主
 
-首版 revision 是进程内历史版本，不是磁盘持久化版本管理。完整版本管理后续需要
-命令日志、内容校验和、原子 snapshot 写入、重启恢复和格式版本迁移。
-SMB 是内核相关格式，不是长期中性文档格式。
+桌面和 Web 共用 Rust UI、交互控制器与视口代码；平台宿主处理窗口、浏览器、文件选择和传输差异。
+egui 负责控件与布局，不自动提供精确 CAD 三维渲染或拓扑拾取。
+视口消费中性网格、边折线、实体引用、相机等数据，不持有 SMLib 对象。
+wgpu 后端负责 Shaded / Face ID / Edge ID、深度和拾取；服务端离屏渲染不依赖打开 GUI 窗口。
+具体渲染进程位置与设备管理方案在进入视口阶段前验证，不在文档阶段固定额外进程。
 
-## 选择与图像
+## 5. 共享会话与状态归属
 
-图像返回 document/revision、camera、viewport 和 render ID，拾取必须使用相同渲染上下文。
-普通 shaded 图用于 VLM 定位，ID 图用于精确像素选取，几何查询用于消歧。
-GPU 不是几何真值源：结果需映射回当前 revision 的 topology token，支持遮挡/容差规则。
-首轮 CPU 预览只能验证接口与模型外观，不宣称 GPU picking 已完成。
+### 5.1 两种运行模式
 
-## 失败与服务隔离
+- 默认连接共享服务；服务不存在时启动一次并等待就绪，多个客户端同时启动不能创建重复实例。
+- GUI、WebUI、MCP、CLI 可以列出/选择会话和文档，显式连接相同目标。
+- GUI 关闭只断开客户端，不结束仍被其他客户端使用的服务；服务关闭采用显式管理操作。
+- 保留显式独立会话/独立实例用于测试和批处理，不影响默认共享文档。
+- 客户端断连不等于取消已接受的修改；不得因断连直接销毁文档。
 
-参数检查、过期引用、内核异常、验证失败均返回结构化错误。事务隔离保护可恢复的失败；
-它不保护内核段错误或进程崩溃。完整服务需 worker 超时、资源限制、日志/快照恢复和监督进程。
-首轮仅本地 stdio，文件导出遵从调用者本地权限，不暴露网络监听端口。
+首版以同一用户、本机服务为基线；Web 接入通过 Rust 服务提供，不能把本机共享等同于公网多租户授权。
 
-## 后续准入门槛
+### 5.2 权威状态与客户端缓存
 
-1. Naming：验证通知覆盖；记录 generated/modified/deleted lineage；对不确定映射返回歧义。
-2. 渲染：无显示 GPU backend、整数 face/edge ID buffer、深度一致 picking，固定 camera 回归。
-3. 当前建模与截图工作流的 MCP 集成测试；至少两种 host 接入同一个协议。
-4. 多 body / Boolean 文档命令、磁盘版本管理、内核崩溃恢复、跨平台 CI。
+| 状态 | 管理方式 |
+|---|---|
+| 文档与几何 | C++ 核心唯一权威；Rust 服务记录路由，客户端只缓存读模型 |
+| Document revision / Undo / Redo | 核心管理，修改成功后递增；失败不改变，Undo/Redo 也产生新 revision |
+| 相机、缩放、显示模式 | 按视口管理；需要共享时显式指定 viewport，而非所有入口共用全局相机 |
+| 选择、悬停、输入草稿 | 默认按客户端/交互会话隔离；共享选择需显式操作 |
+| 面板、窗口、布局 | 客户端 UI 状态，不污染文档历史 |
+| 任务状态 | 核心报告执行结果，服务维护对外请求与任务关联 |
 
-2026-10-17 范围修订：仅使用 SMLib，移除 STEP 导出目标和 OCCT 备选要求。验收以 [当前项目范围](scope.md) 为准。
+模型修改请求必须显式携带文档 ID、期望 revision 和所需实体引用。
+不能使用另一个客户端的隐式“当前选中边”执行 Agent 请求。
+几何 revision 与相机/界面变化分开，旋转视图不使几何引用失效。
+
+### 5.3 多入口修改与事件
+
+首版通过串行执行和乐观版本检查处理冲突，不实现自动合并。
+两个入口基于同一 revision 修改时，只接受符合当前版本的操作，另一个收到明确冲突并重新查询。
+事件最少表达文档创建、修改、Undo/Redo、任务完成/失败，以及所属文档和 revision。
+客户端发现事件缺失、重连或服务重启后重新获取快照，不能靠事件猜测完整模型。
+请求跟踪与重试规则须防止不确定结果下重复修改；具体机制在协议阶段确定。
+
+## 6. 统一命令与交互
+
+协议区分只读查询和文档修改，共享一个可发现的命令目录。
+协议 schema 应有一个中性来源，生成或校核 Rust/C++ 的边界类型，避免手工维护多份定义。
+菜单、快捷键与本地化可保留在 UI 目录；核心不绑定 egui 风格的 UI 元数据。
+MCP 工具描述、CLI 帮助和简单参数面板尽量从相同命令描述派生。
+
+Agent 可以一次提交完整参数；GUI 可通过选择、参数编辑、预览、确认/取消来组装同一业务命令。
+预览应绑定基础 revision，取消不改变正式文档，确认只提交一个历史步骤。
+高频鼠标移动、相机操作不必都经过远程建模调用；昂贵预览应合并、节流并丢弃过期结果。
+浏览器和桌面 UI 使用异步客户端，不在 egui 绘制循环中同步等待内核操作。
+
+## 7. 渲染与拾取一致性
+
+截图、网格和 ID 映射必须标识 document/revision、viewport/camera、尺寸与 render ID。
+普通截图供视觉定位，ID picking 返回实体引用，几何查询用于消歧。
+拾取结果不能越过 revision 检查；不确定或多个候选不能静默选择错误实体。
+服务端截图与本地视口逐步共享场景数据和渲染实现，不能长期各自定义一套拓扑映射。
+
+现有 Python CPU 截图/拾取属于迁移范围。它可以在过渡期用于内部回归验证，
+但在“对外无 Python”验收前必须由 Rust 路径接替；不能让 Rust 服务偷偷启动 Python 渲染脚本。
+
+## 8. 模块演进建议
+
+名称是实施建议，目录在相关阶段收敛，不要求一次性创建全部模块。
+
+| 模块 | 语言 | 目标 |
+|---|---|---|
+| cad-commander | C++ | 从现有 main.cpp 抽出的应用门面与处理器 |
+| cad-core-worker | C++ | 内部 worker 宿主，持有 Commander，处理内部协议 |
+| cad-document / cad-modeling / cad-topology / cad-kernel | C++ | 保留并扩展现有核心职责 |
+| cad-protocol | 中性 schema + Rust 类型 | 命令、查询、事件、错误、版本与能力协商 |
+| cad-client | Rust | 桌面、Web、CLI、MCP 共用的异步接口和客户端缓存 |
+| cad-service | Rust | 对外共享服务、worker 管理、连接与事件 |
+| cad-cli / cad-mcp | Rust | 薄适配器，替换 Python 产品入口 |
+| cad-ui-egui / cad-viewport | Rust | 共用界面、交互控制器、三维视口和拾取 |
+| 桌面 / Web app | Rust | eframe 原生宿主 / WASM 宿主 |
+| 内部脚本、回归测试 | Python 可选 | 开发工具；不成为运行时依赖 |
+
+## 9. 尚待技术验证的细节
+
+已确认的是语言、职责与共享方向；以下实现选择仍需按计划验证：
+
+- 本地连接采用 Unix socket、named pipe 或 loopback TCP 的跨平台安排。
+- 浏览器 HTTP/WebSocket 接口、会话访问控制，以及与本地协议的适配方式。
+- schema 形式、代码生成工具、事件序列和请求重试/去重机制。
+- 网格二进制传输、增量更新和缓存策略，以实测决定，不先优化全部消息。
+- 视口与离屏渲染的复用方式、GPU 兼容性和软件渲染 fallback。
+- 原生安装包与 CMake/Cargo 构建整合、跨平台服务生命周期实现。
+
+未列入本次架构迁移的承诺：SMLib WASM、Rust 重写几何核心、Rust/C++ FFI、多人实时协同、
+新增交换格式或备用内核。持久 Naming、磁盘版本恢复仍是原有后续目标，另设验收，不因共享服务而宣称完成。

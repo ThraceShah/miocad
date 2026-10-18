@@ -1,4 +1,4 @@
-# 当前项目范围（2026-10-17）
+# 当前项目范围（2026-10-18）
 
 按用户指示回退到引入 OCCT 之前的 SMLib MVP 阶段，并修订后续验收要求。
 此文件取代此前任务中有关 STEP 导出和 OCCT 备选内核的要求。
@@ -6,7 +6,11 @@
 - 构建 Agent-Agnostic、Headless-First 的精确 B-Rep CAD 系统，不绑定专用 LLM 或 Agent。
 - 内核使用 SMLib；不设置 OCCT / OpenCASCADE 备选路线。
 - 移除 STEP 导出要求，不为满足交换格式而引入其他内核或转换服务。
-- C++ 独立服务，通过 MCP、CLI 和通用 Agent 指南接入。
+- C++ 保留 SMLib、Document、事务、建模与拓扑，并抽取核心 Commander。
+- 对外服务、MCP、CLI、桌面 GUI、WebUI 使用 Rust；Python 仅作为内部测试和开发工具。
+- Agent、桌面和 WebUI 为平级客户端，默认连接共享 CAD 服务；保留显式独立模式。
+- GUI 采用 egui / eframe，三维视口使用 wgpu；桌面与 Web 尽量复用界面与客户端代码。
+- 以上为已确认的目标架构，现有 Python 原型尚未迁移；不把目标误写为已实现能力。
 - 所有建模修改必须失败回滚；保留独立 Document、Undo/Redo 和版本管理目标。
 - 保留 Shaded、Face ID、Edge ID，以及 VLM 视觉定位 + GPU Picking + 几何查询目标。
 - 不向 Agent 暴露内核指针，保持公共建模接口与 SMLib 实现解耦。
@@ -23,3 +27,5 @@
 仍是后续工作。原生 SMB 导出作为已有附加功能保留，不增加 STEP 格式验收要求。
 
 回滚采用新的 Git 提交保留历史；此前 OCCT / STEP 阶段的实现、依赖配置、测试和指南已移出当前版本。
+
+2026-10-18：补充共享服务、Rust 对外组件和 egui 决策。详细边界见 [架构文档](architecture.md)，执行顺序见 [实施计划](implementation-plan.md)。
