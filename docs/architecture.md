@@ -1,6 +1,6 @@
 # 共享服务、Commander 与 Rust 客户端架构
 
-日期：2026-10-18。状态：核心方向已确认；P1 Commander 与 P2 协议/Rust 客户端已实现，其余目标尚待迁移。
+日期：2026-10-18。状态：核心方向已确认；P1–P3 Commander、协议/Rust 客户端与共享服务已实现，其余目标尚待迁移。
 本文取代首轮 MVP 的目标架构描述；现有实现情况见第 2 节。
 实施顺序与验收门槛见 [实施计划](implementation-plan.md)。
 
@@ -23,17 +23,17 @@ Rust 迁移的主要收益是统一入口实现、复用类型与 SDK、减少�
 
 ## 2. 当前实现基线
 
-迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1/P2 后的现状如下：
+迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1–P3 后的现状如下：
 
 - C++ `cad-commander` 管理文档、注册/校验/分发命令并组织响应；`cad-server` 仅负责 JSONL 收发。
 - `cad-document` 保存内存快照与 Undo/Redo；建模采用 copy / validate / commit，Commander 暂存文档并在响应构造成功后发布。
 - Python MCP、CLI 通过 `scripts/client.py` 各自启动 C++ worker，尚不共享会话。
 - CPU 渲染与拾取位于 Python 接入代码中，尚无交互式 GUI。
 - 已有 Box、单边 Fillet、拓扑查询、截图、原生 SMB 导出；Boolean 在内核探针层验证。
-- 已有 Rust cad-protocol / cad-client、版本化 worker 通道和响应内事件；尚无常驻共享服务、事件订阅、egui GUI、GPU Picking、持久 Naming 或磁盘恢复。
+- 已有 Rust cad-protocol / cad-client / cad-service，默认共享服务、隔离会话、显式 attach、文档快照及带游标的事件拉取；尚无 egui GUI、GPU Picking、持久 Naming 或磁盘恢复。
 
 P1 增加 commands.list 与错误 kind；P2 将描述移到中性 contract.json，加入异步 Rust 客户端、版本与重试契约。
-通过双端共用样例、类型覆盖和真实 worker 校核，而非代码生成。共享服务和 Rust 产品入口替换仍未实现。
+通过双端共用样例、类型覆盖和真实 worker 校核，而非代码生成。P3 加入本机 loopback 共享服务、OS 文件锁、实例发现、内存事件与实际重连核对；Rust MCP/CLI 产品入口替换仍待 P4。
 迁移期间的 Python 入口属于临时兼容路径，不能作为最终发布方案。
 
 ## 3. 参考项目及采用原则
@@ -181,9 +181,9 @@ Agent 可以一次提交完整参数；GUI 可通过选择、参数编辑、预�
 
 已确认的是语言、职责与共享方向；以下实现选择仍需按计划验证：
 
-- P2 内部采用 JSONL pipes；P3 共享连接建议 loopback TCP，Unix socket / named pipe 按后续需求适配。
+- P2 内部采用 JSONL pipes；P3 共享连接已采用 loopback TCP，Unix socket / named pipe 按后续需求适配。
 - 浏览器 HTTP/WebSocket 接口、会话访问控制，以及与本地协议的适配方式。
-- P2 已确定 JSON 中性契约、响应内事件、有限缓存与高水位；P3 仍需订阅、重连和实际多客户端路由。
+- P2 已确定 JSON 中性契约、响应内事件、有限缓存与高水位；P3 已实现带游标的增量事件拉取、重连和多客户端路由，暂不提供推送订阅。
 - 网格二进制传输、增量更新和缓存策略，以实测决定，不先优化全部消息。
 - 视口与离屏渲染的复用方式、GPU 兼容性和软件渲染 fallback。
 - 原生安装包与 CMake/Cargo 构建整合、跨平台服务生命周期实现。

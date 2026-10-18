@@ -562,6 +562,255 @@
           "additionalProperties": false
         }
       ]
+    },
+    "ServiceSession": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "worker_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "worker_pid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Counter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "lost"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "$ref": "#/$defs/Counter"
+        },
+        "documents": {
+          "$ref": "#/$defs/Counter"
+        }
+      },
+      "required": [
+        "session_id",
+        "worker_id",
+        "worker_pid",
+        "state",
+        "reason",
+        "cursor",
+        "documents"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "ping"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "sessions"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "create_session"
+            },
+            "key": {
+              "$ref": "#/$defs/Identifier"
+            }
+          },
+          "required": [
+            "method",
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "rpc"
+            },
+            "session": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Identifier"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "request": {
+              "$ref": "#/$defs/Request"
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "request"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "snapshot"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            }
+          },
+          "required": [
+            "method",
+            "session"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "events"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "after": {
+              "$ref": "#/$defs/Counter"
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "after"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "cancel"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "client_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "request_id": {
+              "$ref": "#/$defs/Counter"
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "client_id",
+            "request_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "shutdown"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ServiceEnvelope": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "1.0"
+        },
+        "service_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "token": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "request": {
+          "$ref": "#/$defs/ServiceRequest"
+        }
+      },
+      "required": [
+        "protocol",
+        "service_id",
+        "token",
+        "request"
+      ],
+      "additionalProperties": false
+    },
+    "ServiceReply": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "1.0"
+        },
+        "service_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "result": {},
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "service_id",
+        "result",
+        "error"
+      ],
+      "additionalProperties": false
     }
   },
   "error_kinds": [
@@ -692,6 +941,48 @@
           "empty"
         ],
         "additionalProperties": false
+      },
+      "preconditions": []
+    },
+    {
+      "effect": "query",
+      "id": "document.list",
+      "input_schema": {
+        "additionalProperties": true,
+        "properties": {
+          "op": {
+            "const": "document.list",
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "revision": {
+              "$ref": "#/$defs/Counter"
+            },
+            "data": {
+              "$ref": "#/$defs/State"
+            }
+          },
+          "required": [
+            "document",
+            "revision",
+            "data"
+          ],
+          "additionalProperties": false
+        }
       },
       "preconditions": []
     },
@@ -1124,6 +1415,163 @@
         "document_exists",
         "nonempty_body"
       ]
+    }
+  ],
+  "service_methods": [
+    {
+      "method": "ping",
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "const": true
+          },
+          "service_id": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "default_session": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "pid": {
+            "$ref": "#/$defs/Counter"
+          }
+        },
+        "required": [
+          "ready",
+          "service_id",
+          "default_session",
+          "pid"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "method": "sessions",
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/ServiceSession"
+        }
+      }
+    },
+    {
+      "method": "create_session",
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "method": "rpc",
+      "output_schema": {
+        "$ref": "#/$defs/Response"
+      }
+    },
+    {
+      "method": "snapshot",
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "session_id": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "cursor": {
+            "$ref": "#/$defs/Counter"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document": {
+                  "$ref": "#/$defs/Identifier"
+                },
+                "revision": {
+                  "$ref": "#/$defs/Counter"
+                },
+                "data": {
+                  "$ref": "#/$defs/State"
+                }
+              },
+              "required": [
+                "document",
+                "revision",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "worker_id",
+          "session_id",
+          "cursor",
+          "documents"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "method": "events",
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "$ref": "#/$defs/Counter"
+          },
+          "resync_required": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Event"
+            }
+          }
+        },
+        "required": [
+          "cursor",
+          "resync_required",
+          "events"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "method": "cancel",
+      "output_schema": {
+        "type": "null"
+      }
+    },
+    {
+      "method": "shutdown",
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "const": "stopping"
+          },
+          "durable": {
+            "const": false
+          }
+        },
+        "required": [
+          "state",
+          "durable"
+        ],
+        "additionalProperties": false
+      }
     }
   ]
 }

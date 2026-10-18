@@ -242,6 +242,8 @@ pub enum Command {
     CommandsList,
     #[serde(rename = "document.create")]
     DocumentCreate,
+    #[serde(rename = "document.list")]
+    DocumentList,
     #[serde(rename = "document.state")]
     DocumentState { document: DocumentId },
     #[serde(rename = "model.box")]
@@ -320,7 +322,7 @@ pub struct RemoteError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retryable: Option<bool>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Context {
     pub protocol: String,
     pub client_id: ClientId,
@@ -498,3 +500,5 @@ pub enum RequestStatus {
     #[serde(rename = "outcome_unavailable")]
     OutcomeUnavailable,
 }
+
+pub mod service;

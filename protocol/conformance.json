@@ -465,5 +465,125 @@
       "client_id": "fixture"
     },
     "valid": false
+  },
+  {
+    "name": "service.events",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": 0
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "service.extra-field",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": 0
+      },
+      "extra": true
+    },
+    "valid": false
+  },
+  {
+    "name": "service.unknown-method",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "erase_all",
+        "session": "session-1",
+        "after": 0
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "service.negative-cursor",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": -1
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "service.floating-cursor",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": 1.0
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "service.unsafe-counter",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": 9007199254740992
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "service.missing-identity",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": 0
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "service.version-mismatch",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "2.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "events",
+        "session": "session-1",
+        "after": 0
+      }
+    },
+    "valid": false
   }
 ]

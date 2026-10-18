@@ -77,23 +77,24 @@ P3 再实现共享服务路由、订阅、漏事件恢复与重连同步。
 Rust RpcClient 对 EOF、超时、截断/畸形响应、关联 ID 或实例不匹配返回 OutcomeUnknown，保留原 Request；
 连接标为不可用，后续调用不能误读迟到响应。等待 future 被取消时也一样。
 SDK 不自动重连、重发或启动新 worker 继续旧请求。已确认响应可显式 send 原 Request 检查去重。
-未来重连只能在证明是同一 worker/session 后查询/显式重发；P3 再实现实际重连传输。
+P3 SharedClient 已提供实际重连：外层绑定同一 service ID，内层仍校验同一 worker/session 后查询/显式重发。
 
 ## 传输决定与大数据
 
-当前内部传输沿用 JSONL pipes，无网络或 GUI；Rust 客户端异步读写，不阻塞未来 UI 绘制循环。
+worker 内部传输沿用 JSONL pipes；P3 新增本机 loopback 网络，无 GUI；Rust 客户端异步读写，不阻塞未来 UI 绘制循环。
 读响应单帧限制 16 MiB，网格暂为 json.inline。超限不会伪装成成功，也不自动重试。
 大型网格后续设计独立二进制/分块接口：需携带 document/revision、布局、大小和校验信息，
 不把内核指针或进程内地址作为跨语言句柄。P2 未实现该接口或增量网格。
 
-P3 本机共享服务建议先使用 loopback TCP 统一桌面平台连接（仅本机绑定），保留未来 Unix socket /
-named pipe 适配；浏览器计划由 Rust 服务提供同源 HTTPS 请求与 WebSocket 事件。
-这些是后续适配选择，本阶段未监听端口、未实现 HTTP/WS、未发布 Web 应用。
+P3 本机共享服务使用 loopback TCP（仅本机绑定），外层 ServiceEnvelope/ServiceReply 及 service_methods
+仍定义于 contract.json；建模 payload 不改 P2 协议。默认 worker 的 service_id 仍为 null，服务身份在外层绑定。
+事件以游标增量拉取，快照用于重连/漏事件恢复。见 [服务契约与运行说明](../crates/cad-service/README.md)。
+Unix socket/named pipe、浏览器 HTTP/WS 留待后续；当前未发布 Web 应用。
 
 ## 验证与范围
 
-conformance.json 的 32 个样例由 C++、Rust 共用；错误、命令和输出类型均做一致性校核。
+conformance.json 的 40 个样例由 C++、Rust 共用；错误、命令和输出类型均做一致性校核。
 Rust 另测有限 f64 位级往返、真实 SMLib 工作流、断连/超时/取消/关联错误无自动重发。
 C++ 继续保留 P1 故障注入和旧 CLI/MCP/预览回归。
 
-不包括：Rust MCP/CLI 产品入口替换、共享 daemon、GUI、GPU 拾取、持久 Naming、磁盘恢复、STEP 或 OCCT。
+不包括：Rust MCP/CLI 产品入口替换、GUI、GPU 拾取、持久 Naming、磁盘恢复、STEP 或 OCCT。

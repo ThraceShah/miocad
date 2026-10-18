@@ -1,6 +1,6 @@
 # AI-CAD
 
-面向任意 Agent 的 Headless-First 精确 B-Rep CAD 原型。核心是独立 C++ 服务；
+面向任意 Agent 的 Headless-First 精确 B-Rep CAD 原型。核心是 C++ Commander / SMLib，Rust 提供共享服务；
 CLI 与 MCP 使用同一命令协议，没有专用 LLM 或特定 Agent 依赖。内核使用 SMLib，
 公共 Shape / IKernel 接口不包含第三方类型。
 
@@ -8,7 +8,7 @@ CLI 与 MCP 使用同一命令协议，没有专用 LLM 或特定 Agent 依赖�
 
 默认共享 CAD 服务，Agent/MCP/CLI、桌面 GUI 和 WebUI 为平级入口；C++ 核心抽取 Commander，
 对外服务及客户端统一使用 Rust，桌面/Web 采用 egui / eframe，视口采用 wgpu。
-Python 仅保留为内部脚本和测试工具。**P1 Commander 与 P2 协议/Rust 客户端已完成**；常驻共享服务、Rust MCP/CLI 产品入口及 GUI 尚未实现，旧入口仍使用 Python。
+Python 仅保留为内部脚本和测试工具。**P1–P3 已完成**：Commander、中性协议/Rust 客户端和默认共享 Rust 服务；Rust MCP/CLI 产品入口及 GUI 尚待后续阶段，旧入口暂仍使用 Python。
 详见 [架构决策](docs/architecture.md) 和 [分阶段实施计划](docs/implementation-plan.md)。
 
 ## 当前状态
@@ -16,8 +16,9 @@ Python 仅保留为内部脚本和测试工具。**P1 Commander 与 P2 协议/Ru
 已完成：官方 SMLib 调查、固定版本、原版内核独立编译、能力探针、九模块 MVP 架构，
 以及可运行的 Box → 截图 → CPU 像素拾边 → Fillet → 有效性检查 → 结果图 → SMB 示例。
 支持独立文档、修改失败回滚、Undo/Redo、过期引用拒绝，以及本地 CLI / MCP 接入。
-新增独立 C++ Commander、核心命令发现与分类错误；版本化 JSONL 端点提供握手、上下文与防重放。
-Rust 客户端可直接调用同一核心，具有强类型标识、事件和未知执行结果处理。
+新增独立 C++ Commander、核心命令发现、权威文档列举与分类错误；版本化 JSONL 端点提供握手、上下文与防重放。
+Rust 客户端可连接默认共享服务或显式隔离 worker，支持会话附着、文档快照、提交事件、重连核对与防重复执行。
+共享服务运行示例与限制见 [cad-service](crates/cad-service/README.md)。
 
 **后续工作**：GPU Picking、跨编辑 Persistent Naming、磁盘文档版本恢复。
 STEP 导出不再属于项目要求；不引入 OCCT 备选内核。当前支持 SMLib 原生 `.smb` 导出。
@@ -28,7 +29,7 @@ Boolean 已在原版内核探针验证，尚未暴露为文档命令。
 
 需要 Git、CMake ≥ 3.20、Ninja、C++17 编译器、Rust 1.90.0 和 Python ≥ 3.10。Python 内部测试仅用标准库。
 Rust toolchain 与 Cargo.lock 已固定；CMake 默认将 Rust workspace 测试纳入 CTest。
-仅构建 C++ 时可设 CAD_ENABLE_RUST_TESTS=OFF，但不能据此宣称 P2 完整验收通过。
+仅构建 C++ 时可设 CAD_ENABLE_RUST_TESTS=OFF，但不能据此宣称 P2/P3 完整验收通过。
 不需要显示服务器、GPU、OpenUSD、Python CAD 包或 Agent 账号。
 本机验证 Linux x86_64 / GCC 15.2；其他平台未验证。
 

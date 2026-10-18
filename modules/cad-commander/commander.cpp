@@ -76,6 +76,12 @@ struct Commander::Impl {
         return {{"kernel", "smlib"}, {"gpu_picking", false}, {"persistent_naming", false}, {"native_format", "smb"}};
     }
     Json list(Context&) { return catalog(); }
+    Json document_list(Context&) {
+        Json result = Json::array();
+        for (const auto& [id, document] : documents)
+            result.push_back({{"document", id}, {"revision", document.revision()}, {"data", document_state(document)}});
+        return result;
+    }
     Json create(Context& context) {
         auto result = document_state(*context.document);
         result["document"] = context.document_id;
@@ -134,7 +140,7 @@ struct Commander::Impl {
         static const auto entries=[] {
             const std::map<std::string,Handler> handlers={
                 {"capabilities",&Impl::capabilities},{"commands.list",&Impl::list},{"document.create",&Impl::create},
-                {"document.state",&Impl::state},{"model.box",&Impl::box},{"model.fillet",&Impl::fillet},
+                {"document.list",&Impl::document_list},{"document.state",&Impl::state},{"model.box",&Impl::box},{"model.fillet",&Impl::fillet},
                 {"document.undo",&Impl::undo},{"document.redo",&Impl::redo},{"topology.edges",&Impl::edges},
                 {"render.mesh",&Impl::mesh},{"export.native",&Impl::export_native}};
             std::vector<Spec> result;

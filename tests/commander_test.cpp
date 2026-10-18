@@ -51,7 +51,7 @@ void catalog_contract() {
         require(spec.at("preconditions").is_array(), "missing preconditions");
         require(spec.at("effect").is_string(), "missing effect");
     }
-    const std::set<std::string> expected = {"capabilities", "commands.list", "document.create", "document.state",
+    const std::set<std::string> expected = {"capabilities", "commands.list", "document.create", "document.state", "document.list",
         "document.undo", "document.redo", "model.box", "model.fillet", "topology.edges", "render.mesh", "export.native"};
     require(names == expected, "catalog does not describe all core commands");
     require(call(commander, {{"op", "commands.list"}}) == catalog, "discovery differs from native catalog");
@@ -59,7 +59,9 @@ void catalog_contract() {
 
 void real_kernel_workflow() {
     cad::Commander commander;
+    require(call(commander, {{"op", "document.list"}}).empty(), "new Commander has documents");
     const auto doc = create(commander), other = create(commander);
+    require(call(commander, {{"op", "document.list"}}).size() == 2, "document enumeration missed a document");
     box(commander, doc, 0);
     auto before = state(commander, doc);
     require(before["revision"] == 1 && before["data"]["volume"] == 1000, "box state changed");
@@ -72,6 +74,10 @@ void real_kernel_workflow() {
     auto mesh = call(commander, {{"op", "render.mesh"}, {"document", doc}})["data"];
     require(mesh["triangles"].size() > 12 && mesh["points"].size() > 8, "empty mesh");
     const auto after = state(commander, doc);
+    bool listed = false;
+    for (const auto& item : call(commander, {{"op", "document.list"}}))
+        if (item["document"] == doc) { require(item == after, "document list state differs from authoritative query"); listed = true; }
+    require(listed, "modeled document absent from list");
     require(after["revision"] == 2, "query changed revision");
     call(commander, {{"op", "document.undo"}, {"document", doc}, {"revision", 2}});
     require(state(commander, doc)["data"]["volume"] == 1000, "undo did not restore box");

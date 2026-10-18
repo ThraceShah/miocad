@@ -151,3 +151,53 @@ Rust 示例实际输出 valid=true、faces=7、edges=15，volume 约 997.8539818
 service_id 当前为 null，去重仅限内存中的同一 worker；旧版本 op 格式不提供去重保证。
 缓存淘汰后保留高水位并拒绝再执行，结果不确定时必须查状态/核对文档，不保证跨崩溃 exactly-once。
 旧 Python MCP/CLI 与 CPU 渲染尚待 P4 替换；未新增 Web/GUI、GPU、STEP 或 OCCT。
+
+## P3：默认共享 Rust 服务（2026-10-18）
+
+先编写共享生命周期验收，再实现 cad-service / SharedClient；第一轮补充测试发现实例身份检查的
+断言预期不一致：收到错误 service ID 时，SDK 应拒绝整份响应并报告 identity changed，
+不能采用其中的 error 文本。修正测试后通过，身份校验逻辑保留。
+
+验证命令：
+
+```sh
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all --check
+cargo build -p cad-service --locked
+cargo run -p cad-client --example shared_session --locked -- target/debug/cad-service build/cad-server /tmp/my-cad-session
+# 在第二个独立进程再次执行上一行，然后显式关闭：
+cargo run -p cad-client --example shared_session --locked -- target/debug/cad-service build/cad-server /tmp/my-cad-session --shutdown
+```
+
+结果：CTest **7/7 通过**（最终约 2.7 秒），其中 Rust workspace **14 个集成测试**；
+Clippy `-D warnings`、格式检查、diff 空白检查通过。共享 schema 样例由 32 增至 **40**，C++/Rust 共读。
+P1/P2、原 Python MCP/CLI/CPU 预览回归继续通过。
+
+新增四组 daemon 集成测试使用真实 SMLib worker 和专用临时 runtime 目录：
+
+- 启动竞争只附着一个 service ID；共享文档可见；旧 revision 的两个修改只成功一个；重放不多发事件。
+  关闭一个客户端后会话仍可用；隔离会话不污染默认文档；超过 64 事件后要求快照重同步。
+- 提交请求后丢弃 socket 响应，再 attach 同一身份，request.status 可核对终态，原请求重放不重复创建。
+  create_session 幂等 key、显式取消不支持、错误 service ID 和 token 拒绝均验证。
+- 真正 SIGKILL worker 后，会话返回 worker_lost/不确定结果，不自动重建；其他隔离 worker 仍可操作。
+  显式关闭后旧端点不可连接；残留 endpoint + 已释放文件锁可以恢复新服务。
+- 真正 SIGKILL daemon 后，自动启动获得新 service ID 和空文档，旧客户端不能迁移/执行旧请求。
+- TCP 代理转发真实提交、故意不回响应，取消 SDK future 后连接逻辑不可继续；重新 attach 查询/重放只保留一次创建。
+
+另以两个独立 SDK 示例进程依次执行真实 Box/Fillet：service ID 相同，第一个进程退出后第二个看见
+两个文档，结果 valid=true、volume≈997.853981819698 mm³。机器结果保存在本机
+`artifacts/p3-shared-demo.json`（生成物，不入 Git），测试 daemon 已显式关闭。
+
+补充权威枚举：先新增 C++ 文档清单验收，旧 Commander 在目录检查和 document.list 调用上失败；
+随后实现中性契约、C++ document.list 和 Rust Command::DocumentList。服务快照直接读取核心完整清单，
+不靠提交事件缓存推测文档是否存在。
+
+决策及边界：本机 loopback TCP，一次连接一次请求/响应；外层 service ID/token，内层保留 worker 请求身份。
+OS 文件锁在服务终生持有，worker hello 完成后原子发布端点。事件为带游标增量拉取，非推送连接；
+快照与 cursor 在同一 worker 锁内生成。每 worker 串行，多个 worker 通过进程隔离 SMLib context。
+客户端断连/取消不取消已接受调用；worker 60 秒 watchdog 后终止会话，SDK 15 秒超时可能先发生，需核对结果。
+仅 Linux x86_64 已验证，随机源 `/dev/urandom`；无磁盘恢复、跨崩溃 exactly-once 或内核抢占取消。
+资源上限和操作说明见 `crates/cad-service/README.md`。未修改第三方内核；未新增 GUI、Web、STEP 或 OCCT。
+Rust MCP/CLI 产品入口及 Python 旧入口替换留待 P4。

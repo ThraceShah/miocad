@@ -4,3 +4,7 @@ pub use cad_protocol as protocol;
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{ClientError, RpcClient, WorkerClient};
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shared;
+#[cfg(not(target_arch = "wasm32"))]
+pub use shared::{ServiceOptions, SharedClient};
