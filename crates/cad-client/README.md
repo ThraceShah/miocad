@@ -19,7 +19,7 @@ cargo run -p cad-client --example box_fillet --locked -- build/cad-server
 ```
 
 可通过 CAD_SERVER 指定集成测试的 worker；示例则接受显式可执行路径。
-示例和 crate 的运行不需要 Python；仓库内部仍保留 Python 回归测试及待 P4 替换的旧入口。
+示例和 crate 的运行不需要 Python；仓库内部仍保留 Python 回归；P4 已用 Rust 产品入口替换旧实现。
 
 共享服务示例：
 

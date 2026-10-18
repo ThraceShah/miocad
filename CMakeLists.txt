@@ -35,6 +35,7 @@ add_library(cad-wire modules/cad-protocol/endpoint.cpp)
 target_link_libraries(cad-wire PUBLIC cad-contract PRIVATE cad-commander)
 add_executable(cad-server modules/cad-server/main.cpp)
 target_link_libraries(cad-server PRIVATE cad-commander cad-wire)
+if(BUILD_TESTING)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME service_transactions COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/service_test.py $<TARGET_FILE:cad-server>)
 add_test(NAME access_preview_mcp COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/access_test.py)
@@ -44,14 +45,23 @@ set_tests_properties(access_preview_mcp PROPERTIES ENVIRONMENT "CAD_SERVER=$<TAR
 
 add_test(NAME wire_contract COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/wire_test.py $<TARGET_FILE:cad-server>)
 set_tests_properties(wire_contract PROPERTIES TIMEOUT 30)
+endif()
 add_executable(protocol_schema_test tests/protocol_schema_test.cpp)
 target_link_libraries(protocol_schema_test PRIVATE cad-contract)
 add_test(NAME protocol_schema_contract COMMAND protocol_schema_test "${PROJECT_SOURCE_DIR}/protocol/contract.json" "${PROJECT_SOURCE_DIR}/protocol/conformance.json")
 set_tests_properties(protocol_schema_contract PROPERTIES TIMEOUT 30)
 option(CAD_ENABLE_RUST_TESTS "Include Rust protocol/client contracts in CTest" ON)
-if(CAD_ENABLE_RUST_TESTS)
+if(CAD_ENABLE_RUST_TESTS AND BUILD_TESTING)
   find_program(CAD_CARGO NAMES cargo HINTS "$ENV{HOME}/.cargo/bin" REQUIRED)
   add_test(NAME rust_workspace COMMAND "${CAD_CARGO}" test --workspace --locked)
   set_tests_properties(rust_workspace PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     ENVIRONMENT "CAD_SERVER=$<TARGET_FILE:cad-server>" TIMEOUT 120)
+  add_test(NAME rust_products_build COMMAND "${CAD_CARGO}" build --workspace --locked)
+  set_tests_properties(rust_products_build PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    FIXTURES_SETUP rust_products TIMEOUT 120)
+  add_test(NAME rust_products_access COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/product_test.py)
+  set_tests_properties(rust_products_access PROPERTIES FIXTURES_REQUIRED rust_products
+    ENVIRONMENT "CAD_SERVER=$<TARGET_FILE:cad-server>" TIMEOUT 120)
 endif()
+
+install(TARGETS cad-server RUNTIME DESTINATION bin)

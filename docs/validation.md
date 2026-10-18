@@ -201,3 +201,70 @@ OS 文件锁在服务终生持有，worker hello 完成后原子发布端点。�
 仅 Linux x86_64 已验证，随机源 `/dev/urandom`；无磁盘恢复、跨崩溃 exactly-once 或内核抢占取消。
 资源上限和操作说明见 `crates/cad-service/README.md`。未修改第三方内核；未新增 GUI、Web、STEP 或 OCCT。
 Rust MCP/CLI 产品入口及 Python 旧入口替换留待 P4。
+
+## P4：Rust 产品入口与服务端场景截图（2026-10-18）
+
+先新增 tests/product_test.py，初始两组验收因 Rust CLI/MCP 程序不存在而失败；随后实现产品路径。
+现有 C++ Commander、SMLib、事务与引用语义保留，第三方源码未修改。
+
+新增 cad-access（公共入口适配）、cad-cli、cad-mcp 与 cad-render；CLI/MCP 共用 cad-client，
+默认 attach 同一服务。产品目录合并 neutral contract 的 commands/access_commands，并统一收紧未知字段；
+MCP inputSchema 从同一目录展开本地 $ref，发布 schema 与执行校验有专门一致性测试。
+服务在同一 worker 锁内获取 mesh/edges 和 revision，用 blocking task 渲染/编码 PNG，缓存四帧。
+pick 验证核心版本和会话；可见 face/edge ID、PNG 像素及引用使用同一帧映射。
+
+验证命令：
+
+```sh
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all --check
+cargo run -p cad-access --example box_fillet --locked -- --runtime-dir /tmp/miocad-p4-demo-verification
+python3 scripts/package.py
+CAD_BIN="$PWD/artifacts/dist/bin" CAD_SERVER="$PWD/artifacts/dist/bin/cad-server" python3 tests/product_test.py
+```
+
+结果：CTest **9/9 通过**；其中 Rust workspace **17 个集成测试**、产品入口 **5 组端到端测试**。
+共用 neutral schema 样例增至 **48**，C++/Rust 同读；Clippy `-D warnings` 与格式检查通过。
+P1/P2/P3、Python 内部旧原型回归继续通过。
+
+产品验收使用真实发布/开发二进制，每个产品子进程 PATH 仅含产品 bin，不含 Python/Cargo/CMake：
+
+- CLI 创建 Box，MCP 读取同一文档并请求截图，另一个 CLI 进程使用同一帧拾边、Fillet。
+  核对 valid=true、体积约 997.8539818 mm³；过期截图及旧实体引用失败且 revision 不变。
+  MCP Undo、CLI Redo、结果截图、MCP SMB 导出均通过，默认文档数量不增加。
+- MCP 生命周期、工具发现、2025-11-25 / 2025-06-18 协商、未知版本回退、重复初始化拒绝、
+  参数/方法/工具/解析错误、浮点 request ID 拒绝及 initialized 通知校验。
+  tools/call 通知不执行建模，通知不产生额外响应；仅协议协商不启动 CAD daemon。
+- MCP structuredContent 与 text JSON 一致；截图 ImageContent 与服务 shaded PNG 字节一致。
+  标准库测试解析 PNG signature/CRC/尺寸/像素，三类 PNG 均有效。
+- 可配置尺寸、可选文件输出与 base64 一致；空文档/越界坐标/错误尺寸拒绝。
+  隔离会话不共享文档或帧，四帧缓存淘汰后返回 render_not_found。
+- CLI JSONL 在错误后继续，id 回显；--command 失败退出 1，迁移提示脚本退出 2 且 stdout 为空。
+  旧启动配置不会悄悄运行另一个独立 Python worker。
+
+Rust 渲染测试逐像素核对 ID 图与 pick 对应、背景、可见面/边、重复候选歧义、坏网格和尺寸限制。
+边容差重叠返回 ambiguous/null，不沿用 Python 原型的最后命中覆盖。
+服务 renderer 查询及文件输出均不增加几何 revision；修改仍受核心事务/乐观锁保护。
+
+运行真实 Rust 示例时发现 Cargo example 目录比产品 bin 多一层，默认服务路径不存在；已修正默认定位并复验。
+实际查看 before/after shaded 与 edge-id PNG：Box 和 Fillet 圆角轮廓正常。
+本机 artifacts/p4-demo/ 保留三类 PNG、SMB 与 demo.json；示例选择可见 ID 像素是确定性验收替身，未运行 VLM。
+不同 SMLib 运行的积分尾数有轻微差异，体积按既有解析容差校核，不宣称跨运行位级一致。
+
+release 包：artifacts/dist/ 与 artifacts/dist.tar.gz（生成物，不入 Git）。bin 下只有 cad-cli、cad-mcp、
+cad-service、C++ cad-server；share 下为文档、锁文件、第三方许可证及依赖清单，没有 .py 文件或 Python runtime。
+在包路径上完整重跑五组产品验收通过。另用 env -i（仅 PATH=包 bin）与 strace 跟踪 capabilities → shutdown，
+execve 仅出现 cad-cli → cad-service → cad-server，没有解释器或构建工具；记录在 artifacts/p4-runtime-exec.log。
+C++ worker ldd 仅需系统 C/C++ 运行库，SMLib 静态链接；仍要求相容 Linux/glibc，不宣称跨发行版通用包。
+BUILD_TESTING=OFF 的独立 CMake 配置不查找 Python（禁用查找变量未使用正表明未调用 find_package）。
+测试与示例实例均显式关闭，未修改默认用户服务、未推送或发布网络服务。
+
+迁移决定：工具名 cad_command、core op 和结果布局保留；images 改为 base64，显式 directory 的磁盘路径在 files。
+原型实现移到 tests/legacy；旧启动路径仅输出迁移提示并退出，不进运行包。
+具体运行/配置、资源上限及请求不确定性处理见 docs/migration-p4.md。
+
+范围边界：仅 CPU 场景截图/近似拾取，无窗口截图、egui GUI、GPU、HTTP/WS、任务进度/抢占取消、
+Persistent Naming 或磁盘恢复。MCP 已进行真实本地 stdio 测试，尚未逐个 Agent host 安装验证。
+STEP 与 OCCT 未恢复。下一阶段为 P5 egui 桌面客户端。

@@ -1,6 +1,6 @@
 # 共享服务、Commander 与 Rust 客户端架构
 
-日期：2026-10-18。状态：核心方向已确认；P1–P3 Commander、协议/Rust 客户端与共享服务已实现，其余目标尚待迁移。
+日期：2026-10-18。状态：核心方向已确认；P1–P4 Commander、协议、共享服务、Rust CLI/MCP 与 CPU 场景渲染已实现，其余目标尚待迁移。
 本文取代首轮 MVP 的目标架构描述；现有实现情况见第 2 节。
 实施顺序与验收门槛见 [实施计划](implementation-plan.md)。
 
@@ -23,18 +23,19 @@ Rust 迁移的主要收益是统一入口实现、复用类型与 SDK、减少�
 
 ## 2. 当前实现基线
 
-迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1–P3 后的现状如下：
+迁移前基线为 4062637 所在的 SMLib MVP 阶段；P1–P4 后的现状如下：
 
 - C++ `cad-commander` 管理文档、注册/校验/分发命令并组织响应；`cad-server` 仅负责 JSONL 收发。
 - `cad-document` 保存内存快照与 Undo/Redo；建模采用 copy / validate / commit，Commander 暂存文档并在响应构造成功后发布。
-- Python MCP、CLI 通过 `scripts/client.py` 各自启动 C++ worker，尚不共享会话。
-- CPU 渲染与拾取位于 Python 接入代码中，尚无交互式 GUI。
+- Rust MCP/CLI 通过 cad-access / cad-client 默认连接共享服务；原 Python 实现已移至 tests/legacy，旧启动路径仅提示迁移。
+- Rust cad-render 由共享服务统一调用，帧缓存跨 CLI/MCP 共享；CPU 场景截图无需窗口，尚无交互式 GUI。
 - 已有 Box、单边 Fillet、拓扑查询、截图、原生 SMB 导出；Boolean 在内核探针层验证。
 - 已有 Rust cad-protocol / cad-client / cad-service，默认共享服务、隔离会话、显式 attach、文档快照及带游标的事件拉取；尚无 egui GUI、GPU Picking、持久 Naming 或磁盘恢复。
 
 P1 增加 commands.list 与错误 kind；P2 将描述移到中性 contract.json，加入异步 Rust 客户端、版本与重试契约。
-通过双端共用样例、类型覆盖和真实 worker 校核，而非代码生成。P3 加入本机 loopback 共享服务、OS 文件锁、实例发现、内存事件与实际重连核对；Rust MCP/CLI 产品入口替换仍待 P4。
-迁移期间的 Python 入口属于临时兼容路径，不能作为最终发布方案。
+通过双端共用样例、类型覆盖和真实 worker 校核，而非代码生成。P3 加入本机 loopback 共享服务、OS 文件锁、实例发现、内存事件与实际重连核对；P4 已替换 Rust MCP/CLI，
+将截图/拾取移到服务，并提供原生发布包和迁移说明。
+Python 仅作为内部回归/构建工具；旧产品路径只保留拒绝启动的迁移提示，不进入发布包。
 
 ## 3. 参考项目及采用原则
 
@@ -157,8 +158,9 @@ Agent 可以一次提交完整参数；GUI 可通过选择、参数编辑、预�
 拾取结果不能越过 revision 检查；不确定或多个候选不能静默选择错误实体。
 服务端截图与本地视口逐步共享场景数据和渲染实现，不能长期各自定义一套拓扑映射。
 
-现有 Python CPU 截图/拾取属于迁移范围。它可以在过渡期用于内部回归验证，
-但在“对外无 Python”验收前必须由 Rust 路径接替；不能让 Rust 服务偷偷启动 Python 渲染脚本。
+P4 已以 Rust CPU 路径接替截图/拾取，统一从共享服务获取；Python 版本仅位于 tests/legacy 作为内部回归。
+服务在同一 worker 锁内获取 mesh/edges 和版本，CPU 计算使用 spawn_blocking；帧携带完整上下文，pick 校核核心版本。
+后续 GPU/窗口视口仍需复用同一场景/引用语义，不能将当前 CPU 近似拾取宣称为 GPU Picking。
 
 ## 8. 模块演进建议
 

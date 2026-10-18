@@ -756,6 +756,88 @@
             "method"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "render_snapshot"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "document": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 768
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 768
+            },
+            "directory": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "document",
+            "width",
+            "height",
+            "directory"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "render_pick"
+            },
+            "session": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "render_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "x": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 767
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 767
+            },
+            "target": {
+              "enum": [
+                "edge",
+                "face"
+              ]
+            }
+          },
+          "required": [
+            "method",
+            "session",
+            "render_id",
+            "x",
+            "y",
+            "target"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -809,6 +891,153 @@
         "service_id",
         "result",
         "error"
+      ],
+      "additionalProperties": false
+    },
+    "RenderSnapshot": {
+      "type": "object",
+      "properties": {
+        "render_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "document": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "worker_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 768
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 768
+        },
+        "backend": {
+          "const": "cpu"
+        },
+        "mime_type": {
+          "const": "image/png"
+        },
+        "camera": {
+          "type": "object"
+        },
+        "images": {
+          "type": "object",
+          "properties": {
+            "shaded": {
+              "type": "string",
+              "minLength": 1
+            },
+            "face-id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "edge-id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "shaded",
+            "face-id",
+            "edge-id"
+          ],
+          "additionalProperties": false
+        },
+        "face_ids": {
+          "type": "object"
+        },
+        "edge_ids": {
+          "type": "object"
+        },
+        "files": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "render_id",
+        "document",
+        "revision",
+        "session_id",
+        "worker_id",
+        "width",
+        "height",
+        "backend",
+        "mime_type",
+        "camera",
+        "images",
+        "face_ids",
+        "edge_ids",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "RenderPick": {
+      "type": "object",
+      "properties": {
+        "render_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "document": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "session_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "worker_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ambiguous": {
+          "type": "boolean"
+        },
+        "target": {
+          "enum": [
+            "edge",
+            "face"
+          ]
+        },
+        "x": {
+          "$ref": "#/$defs/Counter"
+        },
+        "y": {
+          "$ref": "#/$defs/Counter"
+        }
+      },
+      "required": [
+        "render_id",
+        "document",
+        "revision",
+        "session_id",
+        "worker_id",
+        "reference",
+        "ambiguous",
+        "target",
+        "x",
+        "y"
       ],
       "additionalProperties": false
     }
@@ -1572,6 +1801,317 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "method": "render_snapshot",
+      "output_schema": {
+        "$ref": "#/$defs/RenderSnapshot"
+      }
+    },
+    {
+      "method": "render_pick",
+      "output_schema": {
+        "$ref": "#/$defs/RenderPick"
+      }
+    }
+  ],
+  "access_commands": [
+    {
+      "id": "render.snapshot",
+      "effect": "external_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "render.snapshot"
+          },
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 64,
+            "maximum": 768
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 64,
+            "maximum": 768
+          },
+          "directory": {
+            "type": "string"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "document"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$ref": "#/$defs/RenderSnapshot"
+      },
+      "preconditions": [],
+      "description": "Render a versioned CAD scene as shaded, Face ID and Edge ID PNGs; images are base64. Optional directory also saves PNG files."
+    },
+    {
+      "id": "render.pick",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "render.pick"
+          },
+          "render_id": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "x": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 767
+          },
+          "y": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 767
+          },
+          "target": {
+            "enum": [
+              "edge",
+              "face"
+            ]
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "render_id",
+          "x",
+          "y"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$ref": "#/$defs/RenderPick"
+      },
+      "preconditions": [],
+      "description": "Pick a visible edge or face in a cached frame; reject stale revisions. Null reference means background or ambiguity."
+    },
+    {
+      "id": "service.info",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.info"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Inspect the shared service identity."
+    },
+    {
+      "id": "service.sessions",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.sessions"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "array"
+      },
+      "preconditions": [],
+      "description": "List shared and isolated sessions."
+    },
+    {
+      "id": "service.snapshot",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.snapshot"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Refresh authoritative document states and event cursor in the attached session."
+    },
+    {
+      "id": "service.events",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.events"
+          },
+          "after": {
+            "$ref": "#/$defs/Counter"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "after"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Pull committed changes after cursor; resync_required means fetch a new snapshot."
+    },
+    {
+      "id": "service.session.create",
+      "effect": "session_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.session.create"
+          },
+          "key": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "key"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Create an isolated session using an idempotency key."
+    },
+    {
+      "id": "service.attach",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.attach"
+          },
+          "session": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "session"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Attach this frontend to an existing session."
+    },
+    {
+      "id": "service.reconnect",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.reconnect"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Reconnect to the same service/worker after an uncertain result. Never replays a command."
+    },
+    {
+      "id": "request.status",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "request.status"
+          },
+          "target_request_id": {
+            "$ref": "#/$defs/Counter"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "target_request_id"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "$ref": "#/$defs/StatusResult"
+      },
+      "preconditions": [],
+      "description": "Query the cached outcome of an earlier request from this logical client."
+    },
+    {
+      "id": "service.shutdown",
+      "effect": "external_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "service.shutdown"
+          },
+          "id": {}
+        },
+        "required": [
+          "op"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "preconditions": [],
+      "description": "Explicitly shut down the entire shared service; memory documents will be lost."
     }
   ]
 }

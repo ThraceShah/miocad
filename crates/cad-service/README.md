@@ -1,7 +1,7 @@
-# cad-service（P3）
+# cad-service（P3/P4）
 
 Rust 本机共享服务，管理 C++ `cad-server` worker。所有 SMLib 调用仍在 worker 内串行执行。
-没有 Python 运行依赖；本阶段不提供 HTTP、WebSocket、GUI 或 Rust MCP/CLI 产品入口。
+没有 Python 运行依赖；P4 Rust CLI/MCP 使用此服务并共享 Rust CPU 渲染。尚无 HTTP、WebSocket 或 GUI。
 
 ## 运行
 
@@ -74,6 +74,8 @@ schema 仍来自 `protocol/contract.json` 的 ServiceEnvelope/ServiceReply/servi
 | rpc | 向默认/指定会话发送原 worker 请求，包括 hello 和 request.status |
 | snapshot | 会话内文档状态及一致 cursor |
 | events | 从 cursor 拉取提交事件，检测缺失 |
+| render_snapshot | 同一 worker 版本的场景截图，含三种 base64 PNG；可选文件输出 |
+| render_pick | 共享帧缓存中的边/面拾取，先检查核心文档版本 |
 | cancel | 明确返回 cancellation_unsupported |
 | shutdown | 显式停止整个服务 |
 
@@ -92,3 +94,8 @@ SDK 网络超时为 15 秒，可能先于内核结束；这同样要求重连核
 每服务最多 16 个会话、128 个同时处理的连接；每 worker 最多 128 个逻辑客户端（含服务观察者）。
 worker 请求缓存仍为 64 条/16 MiB；会话及客户端记录本阶段不回收，以保留高水位拒绝旧请求的保证。
 暂无磁盘恢复、浏览器传输、后台任务进度、单个内核调用安全抢占或大网格分块。
+
+
+P4 产品入口、截图字段变化、MCP 配置及 release 包见 [迁移指南](../../docs/migration-p4.md)。
+服务按会话缓存四帧，跨入口使用；渲染查询与帧发布在同一 worker 锁下，CPU rasterization 进入 blocking task。
+边候选重叠返回 ambiguous/null，过期帧返回 stale_render，淘汰或跨会话返回 render_not_found。

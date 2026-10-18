@@ -1,3 +1,4 @@
 # cad-render
 
-职责与依赖参见 [MVP 架构](../../docs/architecture.md)。首轮实现范围以根 README 和验证记录为准。
+产品实现已迁至 [Rust cad-render](../../crates/cad-render/README.md)，由共享服务统一调用。
+Python CPU 原型移至 tests/legacy/preview.py，仅用于内部比较回归。

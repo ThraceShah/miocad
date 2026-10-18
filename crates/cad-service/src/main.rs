@@ -27,6 +27,7 @@ struct Worker {
     cursor: u64,
     lost: Option<String>,
     internal_id: u64,
+    frames: VecDeque<(String, cad_render::Frame)>,
 }
 impl Worker {
     async fn start(path: &PathBuf) -> Result<Self, String> {
@@ -49,6 +50,7 @@ impl Worker {
             cursor: 0,
             lost: None,
             internal_id: 0,
+            frames: VecDeque::new(),
         };
         let hello = Request::hello(ClientId::new("service-observer").map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?
@@ -122,6 +124,110 @@ impl Worker {
         Ok(
             json!({"worker_id":self.context["worker_id"],"session_id":self.context["session_id"],"cursor":self.cursor,"documents":docs}),
         )
+    }
+    async fn query(&mut self, op: &str, document: &str) -> Result<Value, String> {
+        self.internal_id += 1;
+        let request = json!({
+            "protocol": self.context["protocol"], "method": "execute",
+            "client_id": "service-observer", "request_id": self.internal_id,
+            "worker_id": self.context["worker_id"], "session_id": self.context["session_id"],
+            "command": {"op": op, "document": document}
+        });
+        let reply = self.exchange(&request).await?;
+        if reply["ok"] != true {
+            return Err(format!(
+                "{}: {}",
+                reply["error"]["kind"].as_str().unwrap_or("kernel_error"),
+                reply["error"]["message"]
+            ));
+        }
+        Ok(reply["result"].clone())
+    }
+    async fn render_snapshot(
+        &mut self,
+        document: &str,
+        width: u32,
+        height: u32,
+        directory: Option<String>,
+    ) -> Result<Value, String> {
+        let mesh = self.query("render.mesh", document).await?;
+        let edges = self.query("topology.edges", document).await?;
+        if mesh["revision"] != edges["revision"] {
+            return Err("revision_conflict: render geometry revisions disagree".into());
+        }
+        let mesh_data: cad_protocol::Mesh =
+            serde_json::from_value(mesh["data"].clone()).map_err(|e| e.to_string())?;
+        let edge_data: Vec<cad_protocol::Edge> =
+            serde_json::from_value(edges["data"].clone()).map_err(|e| e.to_string())?;
+        // Worker lock covers both queries and publication. CPU work leaves the async executor free.
+        let mut frame = tokio::task::spawn_blocking(move || {
+            cad_render::render(&mesh_data, &edge_data, width, height)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let id = unique_id().map_err(|e| e.to_string())?;
+        frame.metadata["render_id"] = json!(id);
+        frame.metadata["document"] = json!(document);
+        frame.metadata["revision"] = mesh["revision"].clone();
+        frame.metadata["session_id"] = self.context["session_id"].clone();
+        frame.metadata["worker_id"] = self.context["worker_id"].clone();
+        frame.metadata["files"] = match directory {
+            Some(directory) => frame.save(&directory)?,
+            None => json!({}),
+        };
+        let metadata = frame.metadata.clone();
+        self.frames.push_back((id, frame));
+        while self.frames.len() > 4 {
+            self.frames.pop_front();
+        }
+        Ok(metadata)
+    }
+    async fn render_pick(
+        &mut self,
+        render_id: &str,
+        x: u32,
+        y: u32,
+        target: &str,
+    ) -> Result<Value, String> {
+        let metadata = {
+            let frame = &self.frames.iter().find(|(id, _)| id == render_id)
+                .ok_or("render_not_found: unknown, evicted or different-session frame; request a new snapshot")?.1;
+            let mut metadata = serde_json::Map::new();
+            for name in [
+                "render_id",
+                "document",
+                "revision",
+                "session_id",
+                "worker_id",
+            ] {
+                metadata.insert(name.into(), frame.metadata[name].clone());
+            }
+            Value::Object(metadata)
+        };
+        let document = metadata["document"]
+            .as_str()
+            .ok_or("invalid frame document")?;
+        let state = self.query("document.state", document).await?;
+        if state["revision"] != metadata["revision"] {
+            return Err("stale_render: document changed; request a new snapshot".into());
+        }
+        let frame = &self
+            .frames
+            .iter()
+            .find(|(id, _)| id == render_id)
+            .ok_or("render_not_found")?
+            .1;
+        let mut result = frame.pick(x, y, target)?;
+        for name in [
+            "render_id",
+            "document",
+            "revision",
+            "session_id",
+            "worker_id",
+        ] {
+            result[name] = metadata[name].clone();
+        }
+        Ok(result)
     }
     fn diagnostics(&mut self) -> Value {
         if self.lost.is_none() {
@@ -217,6 +323,16 @@ impl Service {
                     worker.events.iter().filter(|v| v["event_id"].as_u64().unwrap() > after).cloned().collect()
                 };
                 Ok(json!({"cursor": worker.cursor, "resync_required": missed, "events": events}))
+            }
+            ServiceRequest::RenderSnapshot { session, document, width, height, directory } => {
+                let session = self.session(&session).await?;
+                let result = session.lock().await.render_snapshot(&document, width, height, directory).await;
+                result
+            }
+            ServiceRequest::RenderPick { session, render_id, x, y, target } => {
+                let session = self.session(&session).await?;
+                let result = session.lock().await.render_pick(&render_id,x,y,&target).await;
+                result
             }
             ServiceRequest::Cancel { .. } => Err("cancellation_unsupported: accepted kernel calls continue; disconnect is not cancellation; inspect request.status".into()),
             ServiceRequest::Shutdown => {

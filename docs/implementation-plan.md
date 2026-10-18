@@ -1,13 +1,14 @@
 # 共享服务与 Rust/egui 改造计划
 
-日期：2026-10-18。状态：P1、P2 已实现并验收；P3–P7 尚未开始。
+日期：2026-10-18。状态：P1–P4 已实现并验收；P5–P7 尚待实施。
 依据：[架构决策](architecture.md) 与 [项目范围](scope.md)。
 阶段顺序按依赖排列，不作未经验证的工期承诺。每阶段通过验收后提交本地 Git commit 并报告，
 不擅自推送。迁移中保持现有 SMLib 能力可运行，按实际代码更新状态与使用说明。
 
 ## 0. 基线与执行原则
 
-现有基线：SMLib、C++ JSONL worker、Python MCP/CLI、Python CPU 预览；尚无 Rust GUI/服务。
+迁移前基线：SMLib、C++ JSONL worker、Python MCP/CLI、Python CPU 预览。
+当前 P4 已具有 Rust 共享服务、CLI/MCP 和 CPU 场景渲染；尚无 Rust GUI。
 P1 的验收结果见下节；不把既有 Python 原型计作 Rust 阶段完成。
 
 - 优先证明同一命令的结果、回滚和引用语义，再扩大界面功能。
@@ -108,13 +109,13 @@ P3 完成记录（2026-10-18）：
 
 依赖 P3。目标：替换 Python 产品入口，并补齐其隐藏的渲染职责。
 
-- [ ] Rust CLI 和 MCP 共用 cad-client，默认 attach，共享命令描述与错误处理。
-- [ ] 保留可验证的协议兼容路径或给出明确迁移说明，不让 Agent 配置无提示失效。
-- [ ] MCP 实现生命周期、工具发现、调用、结构化错误和图像返回。
-- [ ] 提供最小 Rust 截图/拾取路径，共用场景与引用映射；首版允许 CPU 实现。
-- [ ] 让所有入口请求同一渲染能力，移出 Python 客户端里的产品逻辑。
-- [ ] 替换使用指南、启动配置和发布入口；Python 原型退出产品目录或移为内部测试工具。
-- [ ] 区分 CAD 场景截图和 GUI 截图：无界面场景截图必须可用，GUI 截图可待后续阶段。
+- [x] Rust CLI 和 MCP 共用 cad-client，默认 attach，共享命令描述与错误处理。
+- [x] 保留可验证的协议兼容路径或给出明确迁移说明，不让 Agent 配置无提示失效。
+- [x] MCP 实现生命周期、工具发现、调用、结构化错误和图像返回。
+- [x] 提供最小 Rust 截图/拾取路径，共用场景与引用映射；首版允许 CPU 实现。
+- [x] 让所有入口请求同一渲染能力，移出 Python 客户端里的产品逻辑。
+- [x] 替换使用指南、启动配置和发布入口；Python 原型退出产品目录或移为内部测试工具。
+- [x] 区分 CAD 场景截图和 GUI 截图：无界面场景截图必须可用，GUI 截图可待后续阶段。
 
 验收：
 
@@ -125,6 +126,16 @@ P3 完成记录（2026-10-18）：
 - stdout 只包含相应协议/命令输出，日志不破坏 MCP/机器调用。
 
 交付：Rust 服务/MCP/CLI 产品路径、Python 退出清单、运行与迁移指南。
+
+P4 完成记录（2026-10-18）：
+
+- Rust cad-cli / cad-mcp 共用 cad-access / cad-client，默认共享服务；旧工具名、JSONL 命令及核心语义保留。
+- neutral contract 的 commands + access_commands 驱动产品目录、MCP inputSchema 和参数校验。
+- Rust cad-render 在服务端生成 shaded / face-id / edge-id PNG；共享帧缓存、版本检查、背景/歧义和淘汰处理。
+- MCP 生命周期、版本协商、协议/工具错误、structuredContent + text + PNG image 已验证；不声明 HTTP/tasks。
+- Python 原型已移到 tests/legacy，旧路径仅迁移提示。release 包仅含四个原生程序、文档与第三方声明。
+- 真实 CLI/MCP 多进程闭环及无 Python PATH 的发布包运行验收，详见 [验证记录](validation.md)。
+- [迁移指南](migration-p4.md) 明确共享生命周期、images base64 / files 路径变化；GUI 场景另待 P5。
 
 ## P5：最小 egui 桌面 GUI 与异步交互
 
@@ -196,5 +207,5 @@ P3 完成记录（2026-10-18）：
 
 ## 下一次执行的起点
 
-下一阶段从 P3 开始：以现有协议与异步客户端为基础，实现 Rust 默认共享服务、发现/启动、attach 与事件分发。
-保留独立 worker 测试模式，先证明两个客户端共享同一文档，再推进 P4 产品入口迁移；不提前启动 GUI/Web 发布。
+下一阶段为 P5：在已验证的 Rust 共享服务、SDK、命令和场景/引用语义之上实现最小 egui 桌面 GUI。
+保留无界面 CLI/MCP 工作流；不将 P4 的 CPU 场景截图冒充 GUI 验收，也不提前实施 Web 发布。

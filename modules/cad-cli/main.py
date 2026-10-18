@@ -1,14 +1,4 @@
-#!/usr/bin/env python3
-"""One worker per session. Send one JSON command per line, receive one result."""
-from pathlib import Path
-import json
+# Migration notice only. This file never starts CAD or implements a service.
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
-from client import Client
-client=Client(sys.argv[1] if len(sys.argv)>1 else None)
-try:
-    for line in sys.stdin:
-        try: result=client.command(json.loads(line))
-        except Exception as e: result={'ok':False,'error':{'code':'command_failed','message':str(e)}}
-        print(json.dumps(result),flush=True)
-finally: client.close()
+sys.stderr.write("AI-CAD Python prototype retired. Use Rust cad-cli. See docs/migration-p4.md.\n")
+raise SystemExit(2)

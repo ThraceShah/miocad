@@ -1,7 +1,7 @@
-# 命令协议：旧入口兼容与 P2 基线
+# 产品命令协议（P4）
 
-本节描述旧版 op 请求；P2 新封装版本为 1.0，详见 [中性协议与重试语义](../protocol/README.md)。
-旧入口继续使用本地 UTF-8 JSONL。`id` 可选，C++ 服务会原样回显。
+Rust CLI/MCP 保留 op 命令形态，默认连接 P3 共享服务；内部 worker 新封装版本为 1.0，详见 [中性协议与重试语义](../protocol/README.md)。
+CLI 使用本地 UTF-8 JSONL。`id` 可选，C++ 服务会原样回显。
 成功：`{"ok":true,"result":...}`；失败：`{"ok":false,"error":{"code":"command_failed","message":"..."}}`。
 P1 保持错误 code 为 command_failed，新增 error.kind 分类；旧客户端可继续只检查 ok/code。
 kind 包括 invalid_request、invalid_params、unknown_command、document_not_found、empty_document、
@@ -15,7 +15,8 @@ mutation 和 state 的 data 为状态摘要。查询不会增加 revision。所�
 | op | 输入（省略公共 op） | 输出 |
 |---|---|---|
 | capabilities | 无 | 内核、GPU/naming 标志 |
-| commands.list | 无 | C++ 核心命令目录：ID、输入/输出 schema、effect、前置条件 |
+| commands.list | 无 | 产品合并目录：ID、输入/输出 schema、effect、前置条件 |
+| document.list | 无 | 核心权威文档状态列表 |
 | document.create | 无 | 新 ID、revision=0 |
 | document.state | document | empty、valid、faces、edges、volume |
 | model.box | document、revision、size[3] | 新状态；替换当前单 body |
@@ -23,15 +24,15 @@ mutation 和 state 的 data 为状态摘要。查询不会增加 revision。所�
 | document.undo/redo | document、revision | 新状态与递增 revision |
 | topology.edges | document | reference、length、采样折线 points |
 | render.mesh | document | points、triangles（vertices + face reference） |
-| render.snapshot | document、可选 directory | render_id、revision、camera、viewport、三张 PNG |
-| render.pick | render_id、整数 x/y | 当前引用或 null（未命中） |
+| render.snapshot | document、可选 width/height/directory | render_id、revision、camera、尺寸、三张 base64 PNG；可选 files 路径 |
+| render.pick | render_id、整数 x/y、可选 target=edge/face | 当前引用或 null、ambiguous、文档版本与帧上下文 |
 | export.native | document、path（.smb） | path、format=smb |
 
-snapshot/pick 是 Python 接入层扩展。渲染缓存只在此会话有效，revision 改变后 pick 失败。
-图像原点左上，x 向右、y 向下，viewport 384×384；CPU edge 像素覆盖约 2px 半径，
+snapshot/pick 由 Rust 服务统一提供。每会话缓存四帧，跨 CLI/MCP 使用；revision 改变后 pick 返回 stale_render。
+图像原点左上，x 向右、y 向下，viewport 默认 384×384，可指定 64..768；CPU edge 像素覆盖约 2px 半径，
 深度阈值为 4 个像素对应的模型长度，不是生产 GPU picking 的精度保证。
-Face/edge ID 图的 RGB 按小端 24-bit 编码；0 为背景，metadata 给出 ID→reference 映射。
-普通 shaded 图不含实体标签。多条边的像素容差重叠时本原型只保留最后命中，后续需要候选消歧。
+Face/edge ID 图的 RGB 按小端 24-bit 编码；0 为背景/歧义，metadata 给出 ID→reference 映射。
+普通 shaded 图不含实体标签。多条边像素容差重叠时返回 ambiguous=true / reference=null，需换像素或几何查询消歧。
 
 修改在暂存 Document 中完成，内核验证和响应构造成功后才发布快照、revision 和历史。
 参数、内核操作、候选验证或响应查询失败保持原模型与历史不变，Undo/Redo 同样适用。
@@ -40,7 +41,8 @@ Face/edge ID 图的 RGB 按小端 24-bit 编码；0 为背景，metadata 给出 
 reference 是不透明、revision 限定的 token，不承诺跨编辑存活。不得修改 token 内部内容，
 不得把相同局部 slot 当作同一实体。undo/redo 后也需重新查询。
 
-本协议是本地原型：尚无幂等键、会话复连、作业取消、资源配额、持久历史、访问控制和网络传输。
+P3/P4 提供本机 loopback 共享服务、实例识别、同 worker 请求去重/高水位、会话复连、资源上限和内存事件。
+不提供持久历史、跨崩溃恢复、远程多租户认证或内核抢占取消；不确定结果不能盲目重做。
 MCP 薄桥支持 initialize、notifications/initialized、ping、tools/list、tools/call；
 没有声明 resources/prompts/HTTP 能力。tools/call 中 CAD 失败通过 isError 返回，不终止会话。
 
@@ -53,5 +55,6 @@ effect 为 query、session_write（创建文档）、document_write 或 external
 前置条件为 document_exists、nonempty_body、current_revision、undo_available、redo_available 的组合。
 P2 起目录来自 protocol/contract.json；$ref 相对此文件的 $defs 解析。
 暂不提供基于文档动态计算的 enabled 字段。
-当前 Python 的 render.snapshot/pick 不在核心目录中，MCP 可透传 commands.list。
-未知请求字段仍允许，原有 op、mm 单位、实体 token 和成功结果布局不变。
+产品目录合并核心 commands 与 access_commands，MCP inputSchema 使用同一 neutral 来源并展开本地 $ref。
+C++ 核心目录仍不包含服务/渲染扩展；产品入口拒绝未声明字段。原有 op、mm 单位、实体 token 和核心成功结果布局保留。
+服务管理、事件恢复、images 字段迁移与错误核对流程见 [P4 迁移指南](migration-p4.md)。

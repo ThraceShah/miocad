@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'scripts'))
+sys.path.insert(0,str(ROOT/'tests/legacy'))
 from client import Client
 
 class AccessTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class AccessTest(unittest.TestCase):
                     client.command(dict(op='render.pick',render_id=frame['render_id'],x=idx%384,y=idx//384))
         finally: client.close()
     def test_mcp_handshake_and_modeling(self):
-        p=subprocess.Popen([sys.executable,str(ROOT/'modules/cad-mcp/server.py')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+        p=subprocess.Popen([sys.executable,str(ROOT/'tests/legacy/mcp_server.py')],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         def rpc(method,params=None):
             p.stdin.write(json.dumps(dict(jsonrpc='2.0',id=1,method=method,params=params or {}))+'\n'); p.stdin.flush()
             return json.loads(p.stdout.readline())
@@ -56,6 +56,6 @@ class AccessTest(unittest.TestCase):
             p.stdin.close(); p.wait(timeout=10); p.stdout.close()
         self.assertEqual(p.returncode,0)
     def test_cli(self):
-        result=subprocess.run([sys.executable,str(ROOT/'modules/cad-cli/main.py')],input='{"op":"capabilities"}\n',capture_output=True,text=True,check=True)
+        result=subprocess.run([sys.executable,str(ROOT/'tests/legacy/cli.py')],input='{"op":"capabilities"}\n',capture_output=True,text=True,check=True)
         self.assertEqual(json.loads(result.stdout)['result']['kernel'],'smlib')
 if __name__=='__main__': unittest.main()

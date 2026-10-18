@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cad-protocol", "crates/cad-client", "crates/cad-service"]
+members = ["crates/cad-protocol", "crates/cad-client", "crates/cad-service", "crates/cad-render", "crates/cad-access", "crates/cad-cli", "crates/cad-mcp"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,5 +11,11 @@ publish = false
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
-tokio = { version = "1", features = ["process", "io-util", "time", "rt", "macros", "net", "sync", "signal"] }
+tokio = { version = "1", features = ["process", "io-util", "time", "rt", "macros", "net", "sync", "signal", "io-std"] }
 cad-protocol = { path = "crates/cad-protocol" }
+
+base64 = "0.22.1"
+png = "0.17.16"
+cad-client = { path = "crates/cad-client" }
+cad-render = { path = "crates/cad-render" }
+cad-access = { path = "crates/cad-access" }

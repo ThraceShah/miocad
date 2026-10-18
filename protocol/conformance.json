@@ -585,5 +585,148 @@
       }
     },
     "valid": false
+  },
+  {
+    "name": "render.valid-snapshot",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_snapshot",
+        "session": "session-1",
+        "document": "doc-1",
+        "width": 384,
+        "height": 384,
+        "directory": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "render.oversized-snapshot",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_snapshot",
+        "session": "session-1",
+        "document": "doc-1",
+        "width": 10000,
+        "height": 384,
+        "directory": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "render.floating-dimension",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_snapshot",
+        "session": "session-1",
+        "document": "doc-1",
+        "width": 384,
+        "height": 384.0,
+        "directory": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "render.negative-dimension",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_snapshot",
+        "session": "session-1",
+        "document": "doc-1",
+        "width": -1,
+        "height": 384,
+        "directory": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "render.valid-pick",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_pick",
+        "session": "session-1",
+        "render_id": "frame-1",
+        "x": 10,
+        "y": 20,
+        "target": "edge"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "render.invalid-target",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_pick",
+        "session": "session-1",
+        "render_id": "frame-1",
+        "x": 10,
+        "y": 20,
+        "target": "vertex"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "render.boolean-pixel",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_pick",
+        "session": "session-1",
+        "render_id": "frame-1",
+        "x": true,
+        "y": 20,
+        "target": "edge"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "render.missing-identity",
+    "schema": "ServiceEnvelope",
+    "value": {
+      "protocol": "1.0",
+      "service_id": "service-1",
+      "token": "fixture-secret",
+      "request": {
+        "method": "render_snapshot",
+        "document": "doc-1",
+        "width": 384,
+        "height": 384,
+        "directory": null
+      }
+    },
+    "valid": false
   }
 ]

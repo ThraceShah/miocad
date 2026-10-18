@@ -13,3 +13,8 @@ Rust 1.90.0 is the pinned development toolchain, not an application runtime depe
 
 P3 enables Tokio networking/signals; socket2 0.6.5 (MIT OR Apache-2.0) is newly locked.
 Its local crate license metadata was checked; the service singleton uses std::fs file locking without a new lock dependency.
+
+P4 adds png 0.17.16 and base64 0.22.1 (both MIT OR Apache-2.0), plus their locked compression dependencies.
+Local crate metadata and license files were checked. scripts/package.py copies available dependency license/notice files,
+upstream SMLib/JSON notices, Cargo.lock and a name/version/license inventory into the native bundle.
+The Rust renderer encodes PNGs; no Python renderer or interpreter is included in the product package.

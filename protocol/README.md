@@ -93,8 +93,11 @@ Unix socket/named pipe、浏览器 HTTP/WS 留待后续；当前未发布 Web �
 
 ## 验证与范围
 
-conformance.json 的 40 个样例由 C++、Rust 共用；错误、命令和输出类型均做一致性校核。
+conformance.json 的 48 个样例由 C++、Rust 共用；错误、命令和输出类型均做一致性校核。
 Rust 另测有限 f64 位级往返、真实 SMLib 工作流、断连/超时/取消/关联错误无自动重发。
 C++ 继续保留 P1 故障注入和旧 CLI/MCP/预览回归。
 
-不包括：Rust MCP/CLI 产品入口替换、GUI、GPU 拾取、持久 Naming、磁盘恢复、STEP 或 OCCT。
+P4 已提供 Rust MCP/CLI 和服务端 CPU 渲染；产品参数、schema 及字段迁移见 [迁移说明](../docs/migration-p4.md)。
+服务 RenderSnapshot/RenderPick 与 product access_commands 仍来自同一 contract.json。
+
+不包括：GUI、GPU 拾取、持久 Naming、磁盘恢复、STEP 或 OCCT。

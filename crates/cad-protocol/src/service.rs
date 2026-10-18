@@ -33,6 +33,20 @@ pub enum ServiceRequest {
         client_id: String,
         request_id: u64,
     },
+    RenderSnapshot {
+        session: String,
+        document: String,
+        width: u32,
+        height: u32,
+        directory: Option<String>,
+    },
+    RenderPick {
+        session: String,
+        render_id: String,
+        x: u32,
+        y: u32,
+        target: String,
+    },
     Shutdown,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

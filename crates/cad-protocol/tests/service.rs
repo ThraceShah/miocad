@@ -27,6 +27,20 @@ fn all_service_methods_match_the_neutral_contract() {
             client_id: "client".into(),
             request_id: 1,
         },
+        ServiceRequest::RenderSnapshot {
+            session: "session".into(),
+            document: "document".into(),
+            width: 384,
+            height: 384,
+            directory: None,
+        },
+        ServiceRequest::RenderPick {
+            session: "session".into(),
+            render_id: "render".into(),
+            x: 0,
+            y: 0,
+            target: "edge".into(),
+        },
         ServiceRequest::Shutdown,
     ];
     assert_eq!(

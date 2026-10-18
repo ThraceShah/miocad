@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'modules/cad-render'))
+ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 from preview import render
 class Client:
     def __init__(self,server=None):
