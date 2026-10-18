@@ -55,13 +55,24 @@ if(CAD_ENABLE_RUST_TESTS AND BUILD_TESTING)
   find_program(CAD_CARGO NAMES cargo HINTS "$ENV{HOME}/.cargo/bin" REQUIRED)
   add_test(NAME rust_workspace COMMAND "${CAD_CARGO}" test --workspace --locked)
   set_tests_properties(rust_workspace PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    ENVIRONMENT "CAD_SERVER=$<TARGET_FILE:cad-server>" TIMEOUT 120)
+    ENVIRONMENT "CAD_SERVER=$<TARGET_FILE:cad-server>" TIMEOUT 300)
   add_test(NAME rust_products_build COMMAND "${CAD_CARGO}" build --workspace --locked)
   set_tests_properties(rust_products_build PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    FIXTURES_SETUP rust_products TIMEOUT 120)
+    FIXTURES_SETUP rust_products TIMEOUT 300)
   add_test(NAME rust_products_access COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/product_test.py)
   set_tests_properties(rust_products_access PROPERTIES FIXTURES_REQUIRED rust_products
     ENVIRONMENT "CAD_SERVER=$<TARGET_FILE:cad-server>" TIMEOUT 120)
+  option(CAD_ENABLE_GUI_TESTS "Run isolated Xvfb desktop acceptance (Linux, requires Xvfb/ffmpeg/XTest)" OFF)
+  if(CAD_ENABLE_GUI_TESTS)
+    find_program(CAD_XVFB NAMES Xvfb REQUIRED)
+    find_program(CAD_FFMPEG NAMES ffmpeg REQUIRED)
+    find_program(CAD_XWININFO NAMES xwininfo REQUIRED)
+    add_test(NAME desktop_workspace COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/gui_smoke.py)
+    set_tests_properties(desktop_workspace PROPERTIES FIXTURES_REQUIRED rust_products
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" ENVIRONMENT "CAD_BIN=${PROJECT_SOURCE_DIR}/target/debug;CAD_SERVER=$<TARGET_FILE:cad-server>"
+      TIMEOUT 120 RUN_SERIAL TRUE)
+  endif()
+
 endif()
 
 install(TARGETS cad-server RUNTIME DESTINATION bin)

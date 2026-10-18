@@ -1,10 +1,10 @@
 # AI-CAD
 
 面向通用 Agent 的 Headless-First 精确 B-Rep CAD 系统。C++ Commander / SMLib 管理权威文档和建模，
-Rust 共享服务、CLI 与 MCP 提供统一接入；不绑定模型或 Agent，不需要显示服务器。
+Rust 共享服务、CLI、MCP 与 egui 桌面提供统一接入；不绑定模型或 Agent，无界面路径不需要显示服务器。
 
-**P1–P4 已完成**：Commander、中性协议、Rust 客户端、默认共享服务，以及 Rust CLI/MCP 和服务端 CPU 场景截图/拾取。
-后续桌面/WebUI 将作为平级客户端使用 egui / eframe；当前没有 GUI、Web 应用或 GPU Picking。
+**P1–P5 已完成**：Commander、中性协议、Rust 客户端、默认共享服务，以及 Rust CLI/MCP、共享 CPU 场景渲染和可运行的 egui 桌面工作区。
+桌面与 Agent 为平级客户端；WebUI、GPU Picking 和磁盘恢复仍属后续工作。
 Python 仅用于内部测试/打包，原型代码位于 tests/legacy，产品运行路径不依赖 Python。
 
 支持文档创建/列举、Box、单边 Fillet、拓扑/网格查询、失败回滚、Undo/Redo、场景截图、像素拾取及 SMB 导出。
@@ -68,6 +68,18 @@ cargo run -p cad-access --example box_fillet --locked -- --runtime-dir /tmp/cad-
 
 生成 artifacts/p4-demo/ 下的 PNG、SMB 和 demo.json。自动像素选择用于确定性验收，未运行 VLM。
 
+## egui 桌面
+
+```sh
+./target/debug/cad-gui --runtime-dir /tmp/cad-workspace
+```
+
+CLI/MCP 使用同一 runtime-dir 即共享文档。桌面支持文档切换、Box/Fillet 参数、边选择、
+临时预览/确认/取消、Undo/Redo、本地旋转/平移/缩放和提交事件同步。
+关闭窗口不会关闭服务；相机/选择/草稿不会污染 Agent 状态。
+当前由 eframe/wgpu 显示共用 CPU raster 的交互视口，并非 GPU Picking。
+[运行、设计与真实窗口验收](docs/desktop-p5.md)。
+
 ## MCP 与发布包
 
 ```json
@@ -89,8 +101,8 @@ cargo run -p cad-access --example box_fillet --locked -- --runtime-dir /tmp/cad-
 python3 scripts/package.py
 ```
 
-内部打包脚本生成 artifacts/dist/bin/ 的四个原生程序及第三方声明；将四者放在同一目录运行，
-不需要源码、Cargo、CMake 或 Python。系统运行库仍需相容。
+内部打包脚本生成 artifacts/dist/bin/ 的五个原生程序及第三方声明；将程序放在同一目录运行，
+不需要源码、Cargo、CMake 或 Python。系统运行库仍需相容；GUI 需要显示服务器和 Vulkan/GLES，CLI/MCP 不需要。
 旧 Python 启动路径会明确退出并提示迁移；配置替换、截图字段变化、资源限制见 [P4 迁移指南](docs/migration-p4.md)。
 
 ## 工程记录

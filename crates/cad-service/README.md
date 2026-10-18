@@ -1,7 +1,7 @@
-# cad-service（P3/P4）
+# cad-service（P3–P5）
 
 Rust 本机共享服务，管理 C++ `cad-server` worker。所有 SMLib 调用仍在 worker 内串行执行。
-没有 Python 运行依赖；P4 Rust CLI/MCP 使用此服务并共享 Rust CPU 渲染。尚无 HTTP、WebSocket 或 GUI。
+没有 Python 运行依赖；P4 Rust CLI/MCP 使用此服务并共享 Rust CPU 渲染。P5 egui 桌面也直接连接此服务；尚无 HTTP 或 WebSocket。
 
 ## 运行
 

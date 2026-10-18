@@ -93,6 +93,7 @@ fn all_neutral_commands_have_rust_types() {
                 "edge" => json!("opaque-edge"),
                 "radius" => json!(1.),
                 "path" => json!("fixture.smb"),
+                "operation" => json!({"kind":"box","size":[2,3,4]}),
                 _ => panic!("missing typed fixture field {name}"),
             };
         }

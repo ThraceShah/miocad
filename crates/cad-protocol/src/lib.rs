@@ -234,10 +234,24 @@ impl Serialize for Finite {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PreviewOperation {
+    Box { size: [Finite; 3] },
+    Fillet { edge: String, radius: Finite },
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", deny_unknown_fields)]
 pub enum Command {
     #[serde(rename = "capabilities")]
     Capabilities,
+    #[serde(rename = "render.scene")]
+    Scene { document: DocumentId },
+    #[serde(rename = "model.preview")]
+    Preview {
+        document: DocumentId,
+        revision: Revision,
+        operation: PreviewOperation,
+    },
     #[serde(rename = "commands.list")]
     CommandsList,
     #[serde(rename = "document.create")]
@@ -502,3 +516,12 @@ pub enum RequestStatus {
 }
 
 pub mod service;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Scene {
+    pub state: DocumentState,
+    pub mesh: Option<Mesh>,
+    pub edges: Vec<Edge>,
+    pub can_undo: bool,
+    pub can_redo: bool,
+}

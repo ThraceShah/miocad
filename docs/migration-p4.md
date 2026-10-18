@@ -21,8 +21,8 @@ python3 scripts/package.py
 ```
 
 目录及归档 `artifacts/dist/` / `artifacts/dist.tar.gz` 已包含所需文件。
-包目录 `artifacts/dist/bin/` 包含四个原生程序：cad-cli、cad-mcp、cad-service、cad-server。
-将四者放在同一目录，运行时无需源码、Cargo、CMake 或 Python；仍需要相容的 Linux 动态加载器、
+P5 起包目录 `artifacts/dist/bin/` 包含五个原生程序：cad-gui、cad-cli、cad-mcp、cad-service、cad-server。
+将程序放在同一目录，运行时无需源码、Cargo、CMake 或 Python；仍需要相容的 Linux 动态加载器、
 glibc、libstdc++ 等系统运行库。SMLib 静态链接入 worker；只验证本机构建平台，不承诺任意发行版兼容。
 打包脚本和测试是内部工具，Python 不复制到包内。项目本身的分发许可证尚未选定，沿用 THIRD_PARTY.md 的说明。
 
@@ -91,7 +91,7 @@ C++ worker 的 commands.list 仍只描述核心命令。
 shaded、face-id、edge-id 三张 PNG，**images 的值现在是 base64 PNG，不再是文件路径**。
 可选 directory 在服务端额外保存文件，绝对路径位于 files；省略 directory 不写磁盘。
 返回 render_id、document/revision、worker/session、相机参数、尺寸和 ID→reference 映射。
-这是无 GUI 的场景截图；窗口截图及 GUI 交互属于 P5。
+这是无 GUI 的场景截图；P5 桌面与真实窗口验收见 desktop-p5.md。
 
 `render.pick` 使用同一 render_id、整数 x/y，可选 target=edge（默认）或 face。
 背景 reference=null；边容差区域重叠时 ambiguous=true、reference=null，换邻近像素或结合几何查询消歧。

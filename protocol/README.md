@@ -81,7 +81,7 @@ P3 SharedClient 已提供实际重连：外层绑定同一 service ID，内层�
 
 ## 传输决定与大数据
 
-worker 内部传输沿用 JSONL pipes；P3 新增本机 loopback 网络，无 GUI；Rust 客户端异步读写，不阻塞未来 UI 绘制循环。
+worker 内部沿用 JSONL pipes；P3 使用 loopback 网络，P5 桌面作为普通客户端接入；Rust 异步读写不阻塞 UI 绘制。
 读响应单帧限制 16 MiB，网格暂为 json.inline。超限不会伪装成成功，也不自动重试。
 大型网格后续设计独立二进制/分块接口：需携带 document/revision、布局、大小和校验信息，
 不把内核指针或进程内地址作为跨语言句柄。P2 未实现该接口或增量网格。
@@ -93,11 +93,14 @@ Unix socket/named pipe、浏览器 HTTP/WS 留待后续；当前未发布 Web �
 
 ## 验证与范围
 
-conformance.json 的 48 个样例由 C++、Rust 共用；错误、命令和输出类型均做一致性校核。
+conformance.json 的 54 个样例由 C++、Rust 共用；错误、命令和输出类型均做一致性校核。
 Rust 另测有限 f64 位级往返、真实 SMLib 工作流、断连/超时/取消/关联错误无自动重发。
 C++ 继续保留 P1 故障注入和旧 CLI/MCP/预览回归。
 
 P4 已提供 Rust MCP/CLI 和服务端 CPU 渲染；产品参数、schema 及字段迁移见 [迁移说明](../docs/migration-p4.md)。
 服务 RenderSnapshot/RenderPick 与 product access_commands 仍来自同一 contract.json。
 
-不包括：GUI、GPU 拾取、持久 Naming、磁盘恢复、STEP 或 OCCT。
+P5 已提供 egui 桌面与核心只读 model.preview / render.scene，契约仍来自同一 JSON。
+预览不改正式 revision/history，候选引用不能用于修改正式模型；详见 [桌面说明](../docs/desktop-p5.md)。
+
+不包括：WebUI、GPU 拾取、持久 Naming、磁盘恢复、STEP 或 OCCT。

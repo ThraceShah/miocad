@@ -268,3 +268,71 @@ BUILD_TESTING=OFF 的独立 CMake 配置不查找 Python（禁用查找变量未
 范围边界：仅 CPU 场景截图/近似拾取，无窗口截图、egui GUI、GPU、HTTP/WS、任务进度/抢占取消、
 Persistent Naming 或磁盘恢复。MCP 已进行真实本地 stdio 测试，尚未逐个 Agent host 安装验证。
 STEP 与 OCCT 未恢复。下一阶段为 P5 egui 桌面客户端。
+
+## P5：egui 桌面、只读候选与多入口同步（2026-10-18）
+
+先新增 C++ 预览/场景契约，旧 Commander 在目录与 model.preview 上失败，再实现核心只读能力。
+候选复制 Document、复用 Box/Fillet 几何处理器和验证，返回独立临时引用命名空间；正式文档不提交、不截断 redo。
+新增 render.scene 在单次核心调用中返回状态/网格/边/历史可用性，避免多次查询间被其他入口修改。
+
+新增 cad-ui-egui（宿主无关界面/读模型/控制器）与 cad-gui（eframe/wgpu、cad-client 后台连接）。
+桌面包含文档树、Box/Fillet 参数、可见边选择/高亮、预览/确认/取消、Undo/Redo、状态/错误与原生导出。
+相机/选择/悬停/草稿只在窗口保存；业务请求和 CPU 渲染分别在后台线程，旧票据/视图 epoch 不覆盖当前状态。
+
+验证命令：
+
+```sh
+cmake -S . -B build -DCAD_ENABLE_GUI_TESTS=ON
+cmake --build build -j 6
+ctest --test-dir build --output-on-failure
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt --all --check
+python3 scripts/package.py
+CAD_BIN="$PWD/artifacts/dist/bin" python3 tests/gui_smoke.py
+CAD_BIN="$PWD/artifacts/dist/bin" CAD_SERVER="$PWD/artifacts/dist/bin/cad-server" python3 tests/product_test.py
+```
+
+最终范围：CTest **10/10**；Rust workspace **24 个集成测试**，包含四个 UI 控制器、两个真实共享后台、三个 raster 测试。
+共享 C++/Rust schema 样例 **54**；P1–P4 和五组 Rust CLI/MCP 产品端到端回归保持通过。
+Clippy `-D warnings`、格式/diff 检查通过。默认 GUI 测试开关为 OFF，普通 headless 回归不要求显示；
+本阶段明确启用真实桌面验收，不能以仅编译或默认 headless 回归宣称 P5 完成。
+
+控制器/核心/后台覆盖：
+
+- 取消、草稿改变、旧 preview ticket、revision 前进均使候选不可确认；确认被消费一次，不能双提交。
+  Scene 查询在快照之后读到更高 revision 时也作废候选；已取消预览的迟到断连仍更新连接状态。
+- 候选几何有效但正式文档仍为空/原体积，预览引用不能用于真实 Fillet，预览后 Undo/Redo 不变。
+- GUI 后台与独立 SDK 客户端同 service ID，Agent 修改触发场景刷新；旧版本确认收到 revision_conflict。
+  后台退出/重开仍读取原文档；服务不可达异步上报，UI 构造不等待服务。
+- 本地旋转保持世界包围球尺度与文档版本，像素拾取映射与场景同帧；有界命令/结果队列和视口任务合并。
+- 不确定请求保留原 Request，经同实例 status 核对和快照刷新，不自动重放；核对结果不会被普通刷新完成文案覆盖。
+
+真实桌面测试使用独立 Xvfb/XTest，1280×820 原生 eframe/wgpu 窗口；不操作用户桌面。
+不是浏览器页面或 GUI mock。实际适配器日志：Vulkan / llvmpipe (LLVM 21.1.8, 256 bits) / Cpu。
+依次点击创建文档 → Box 预览 → 取消 → 重新预览/确认，独立 CLI 核对 revision 0→1；重复确认不增加版本。
+点击视口可见边并设置默认半径，Fillet 候选不提交，确认后 revision=2，valid=true、volume≈997.8539817 mm³。
+实际截图能看到前侧竖边高亮及圆角结果。
+
+继续拖动视口，图像与轴向指示改变，但 revision=2 且事件列表无新增；GUI Undo/Redo 后为 revision 3/4。
+MCP 在同一服务读取几何，未显式传 edge 的 Fillet 被拒绝，证明 GUI 选择不被 Agent 隐式消费。
+GUI 再次显示候选期间，MCP 替换 Box 为 12×10×10，revision=5；GUI 作废旧预览、禁用确认并显示 stale，体积为 1200。
+WM_DELETE_WINDOW 关闭窗口后 CLI/MCP 仍读取原文档；重开保持同 service ID 和 revision=5。
+MCP 导出 SMB 后显式关闭测试服务，GUI 显示 Offline/connection refused，提交按钮禁用且缓存场景只读。
+已查看 Box/Fillet 预览、圆角结果、旋转、过期候选、重开和服务不可达的真实 PNG。
+
+测试生成 artifacts/p5-gui/ 下 13 张 PNG、native-workflow.smb、acceptance.json 及适配器日志；不入 Git。
+GUI 原生验收和 release 包均不包含 Python 产品服务；gui_probe.py / gui_smoke.py 只是内部测试驱动。
+已生成五个原生程序的 release 包，收录默认字体许可；GUI 与 CLI/MCP 同包、独立启动。
+
+过程修正：禁用 eframe 默认 feature 后首次原生启动没有实际 wgpu backend，显式启用 Vulkan/GLES 后复验通过。
+调整了侧栏滚动、稳定 orbit 中心/尺度和异步状态边界；GUI 错误携带的原 Request 改为 Box，保留恢复信息并通过 Clippy。
+打包 metadata 初次尝试下载其他平台源包遇到超时；改为本机 target + offline metadata，仅使用已成功构建的本机依赖。
+部分 egui crate 不含 workspace 根许可证，补存官方固定 tag 的许可文本；内核与 egui 源码均未修改。
+
+边界：P5 是 wgpu 显示 CPU raster 的交互场景纹理，不是 GPU 几何渲染/拾取；只验证 Linux/X11/Mesa 软件适配器。
+没有测试真实显卡、其他 OS、浏览器传输/发布、磁盘恢复、Persistent Naming、任务进度或内核抢占取消。
+未创建/发布 Web 应用，未改用户默认服务，未推送。下一阶段为 P6 WebUI。
+
+P5 release 最终复验：使用 artifacts/dist/bin 中的匹配程序重跑五组产品测试和完整原生窗口验收均通过。
+归档约 14.5 MiB，五个程序、无 .py 文件；检查确认默认字体 UFL/OFL 和 supplemental egui 许可均随包提供。
+所有测试窗口、Xvfb 和服务已关闭。artifacts/dist.tar.gz.sha256 为最终归档校验值。

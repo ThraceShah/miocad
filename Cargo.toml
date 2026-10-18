@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cad-protocol", "crates/cad-client", "crates/cad-service", "crates/cad-render", "crates/cad-access", "crates/cad-cli", "crates/cad-mcp"]
+members = ["crates/cad-protocol", "crates/cad-client", "crates/cad-service", "crates/cad-render", "crates/cad-access", "crates/cad-cli", "crates/cad-mcp", "crates/cad-ui-egui", "crates/cad-gui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,3 +19,7 @@ png = "0.17.16"
 cad-client = { path = "crates/cad-client" }
 cad-render = { path = "crates/cad-render" }
 cad-access = { path = "crates/cad-access" }
+
+egui = "=0.33.3"
+eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "wgpu", "x11"] }
+cad-ui-egui = { path = "crates/cad-ui-egui" }

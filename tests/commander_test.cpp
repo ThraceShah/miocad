@@ -52,9 +52,39 @@ void catalog_contract() {
         require(spec.at("effect").is_string(), "missing effect");
     }
     const std::set<std::string> expected = {"capabilities", "commands.list", "document.create", "document.state", "document.list",
-        "document.undo", "document.redo", "model.box", "model.fillet", "topology.edges", "render.mesh", "export.native"};
+        "document.undo", "document.redo", "model.box", "model.fillet", "topology.edges", "render.mesh", "render.scene", "model.preview", "export.native"};
     require(names == expected, "catalog does not describe all core commands");
     require(call(commander, {{"op", "commands.list"}}) == catalog, "discovery differs from native catalog");
+}
+
+void preview_contract() {
+    cad::Commander commander;
+    const auto doc = create(commander);
+    const auto initial = state(commander, doc);
+    const auto box_preview = call(commander, {{"op", "model.preview"}, {"document", doc}, {"revision", 0},
+        {"operation", {{"kind", "box"}, {"size", {10, 10, 10}}}}});
+    require(box_preview["revision"] == 0 && box_preview["data"]["state"]["volume"] == 1000, "bad box preview");
+    require(state(commander, doc) == initial, "preview committed a box");
+    require(call(commander, {{"op", "render.scene"}, {"document", doc}})["data"]["mesh"].is_null(), "preview leaked into empty scene");
+    box(commander, doc, 0);
+    const auto before = state(commander, doc);
+    const auto selected = edge(commander, doc);
+    const auto preview = call(commander, {{"op", "model.preview"}, {"document", doc}, {"revision", 1},
+        {"operation", {{"kind", "fillet"}, {"edge", selected}, {"radius", 1}}}});
+    require(preview["revision"] == 1 && preview["data"]["state"]["valid"] == true, "bad fillet preview");
+    require(preview["data"]["state"]["volume"].get<double>() < 1000, "preview did not compute fillet");
+    require(state(commander, doc) == before, "fillet preview changed document");
+    const auto preview_edge = preview["data"]["edges"][0]["reference"];
+    error(commander, {{"op", "model.fillet"}, {"document", doc}, {"revision", 1}, {"edge", preview_edge}, {"radius", 1}}, "invalid_reference");
+    call(commander, {{"op", "document.undo"}, {"document", doc}, {"revision", 1}});
+    const auto undone = state(commander, doc);
+    call(commander, {{"op", "model.preview"}, {"document", doc}, {"revision", 2},
+        {"operation", {{"kind", "box"}, {"size", {2, 3, 4}}}}});
+    require(state(commander, doc) == undone, "cancelled preview altered history");
+    require(call(commander, {{"op", "render.scene"}, {"document", doc}})["data"]["can_redo"] == true, "preview truncated redo");
+    call(commander, {{"op", "document.redo"}, {"document", doc}, {"revision", 2}});
+    error(commander, {{"op", "model.preview"}, {"document", doc}, {"revision", 2},
+        {"operation", {{"kind", "box"}, {"size", {2, 3, 4}}}}}, "revision_conflict");
 }
 
 void real_kernel_workflow() {
@@ -214,6 +244,7 @@ void export_contract() {
 int main() {
     const std::vector<std::pair<std::string,std::function<void()>>> tests = {
         {"catalog", catalog_contract}, {"real kernel workflow", real_kernel_workflow},
+        {"preview without history mutation", preview_contract},
         {"validation and errors", validation_and_error_contract},
         {"mutating kernel failure", []{ rollback_contract(Faults::KernelFailure,"kernel_error"); }},
         {"candidate validation failure", []{ rollback_contract(Faults::InvalidCandidate,"validation_failed"); }},

@@ -728,5 +728,101 @@
       }
     },
     "valid": false
+  },
+  {
+    "name": "preview.box",
+    "schema": "command:model.preview",
+    "value": {
+      "op": "model.preview",
+      "document": "doc-1",
+      "revision": 1,
+      "operation": {
+        "kind": "box",
+        "size": [
+          10,
+          10,
+          10
+        ]
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "preview.fillet",
+    "schema": "command:model.preview",
+    "value": {
+      "op": "model.preview",
+      "document": "doc-1",
+      "revision": 1,
+      "operation": {
+        "kind": "fillet",
+        "edge": "ref",
+        "radius": 1
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "preview.bad-revision",
+    "schema": "command:model.preview",
+    "value": {
+      "op": "model.preview",
+      "document": "doc-1",
+      "revision": 1.0,
+      "operation": {
+        "kind": "box",
+        "size": [
+          10,
+          10,
+          10
+        ]
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "preview.bad-size",
+    "schema": "command:model.preview",
+    "value": {
+      "op": "model.preview",
+      "document": "doc-1",
+      "revision": 1,
+      "operation": {
+        "kind": "box",
+        "size": [
+          0,
+          10,
+          10
+        ]
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "preview.missing-edge",
+    "schema": "command:model.preview",
+    "value": {
+      "op": "model.preview",
+      "document": "doc-1",
+      "revision": 1,
+      "operation": {
+        "kind": "fillet",
+        "radius": 1
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "preview.unknown-kind",
+    "schema": "command:model.preview",
+    "value": {
+      "op": "model.preview",
+      "document": "doc-1",
+      "revision": 1,
+      "operation": {
+        "kind": "boolean"
+      }
+    },
+    "valid": false
   }
 ]

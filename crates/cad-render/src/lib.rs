@@ -8,14 +8,48 @@ const AMBIGUOUS: u32 = u32::MAX;
 fn world(p: &[cad_protocol::Finite; 3]) -> [f64; 3] {
     p.map(|n| n.get())
 }
-fn camera(p: [f64; 3]) -> [f64; 3] {
-    let [x, y, z] = p;
-    [
-        (x - y) / 2f64.sqrt(),
-        (2. * z - x - y) / 6f64.sqrt(),
-        (x + y + z) / 3f64.sqrt(),
-    ]
+/// View-local orthographic orbit camera; never changes a CAD document revision.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Camera {
+    pub yaw: f64,
+    pub pitch: f64,
+    pub zoom: f64,
+    pub pan: [f64; 2],
 }
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            yaw: std::f64::consts::FRAC_PI_4,
+            pitch: (1. / 3f64.sqrt()).asin(),
+            zoom: 1.,
+            pan: [0., 0.],
+        }
+    }
+}
+impl Camera {
+    pub fn projected_axis(self, axis: [f64; 3]) -> [f64; 2] {
+        let p = self.transform(axis);
+        [p[0], -p[1]]
+    }
+    pub fn direction(self) -> [f64; 3] {
+        [
+            self.pitch.cos() * self.yaw.cos(),
+            self.pitch.cos() * self.yaw.sin(),
+            self.pitch.sin(),
+        ]
+    }
+    fn transform(self, p: [f64; 3]) -> [f64; 3] {
+        let (sy, cy) = self.yaw.sin_cos();
+        let (sp, cp) = self.pitch.sin_cos();
+        let [x, y, z] = p;
+        [
+            sy * x - cy * y,
+            -sp * cy * x - sp * sy * y + cp * z,
+            cp * cy * x + cp * sy * y + sp * z,
+        ]
+    }
+}
+
 fn png_bytes(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     {
@@ -45,6 +79,7 @@ fn id_for(map: &mut BTreeMap<String, u32>, reference: &str) -> u32 {
 }
 pub struct Frame {
     pub metadata: Value,
+    rgb: Vec<u8>,
     width: u32,
     height: u32,
     faces: Vec<u32>,
@@ -53,6 +88,26 @@ pub struct Frame {
     edge_refs: BTreeMap<u32, String>,
 }
 impl Frame {
+    pub fn rgb(&self) -> &[u8] {
+        &self.rgb
+    }
+    pub fn viewport_rgb(&self, selected: Option<&str>) -> Vec<u8> {
+        let mut rgb = self.rgb.clone();
+        for (index, id) in self.edges.iter().enumerate() {
+            if *id == 0 || *id == AMBIGUOUS {
+                continue;
+            }
+            let color = if selected.is_some_and(|s| self.edge_refs.get(id).is_some_and(|r| r == s))
+            {
+                [13, 183, 166]
+            } else {
+                [52, 72, 89]
+            };
+            rgb[3 * index..3 * index + 3].copy_from_slice(&color);
+        }
+        rgb
+    }
+
     pub fn save(&self, directory: &str) -> Result<Value, String> {
         if directory.is_empty() || directory.contains('\0') {
             return Err("invalid_params: invalid render directory".into());
@@ -95,13 +150,45 @@ impl Frame {
     }
 }
 pub fn render(mesh: &Mesh, edges: &[Edge], width: u32, height: u32) -> Result<Frame, String> {
+    rasterize(mesh, edges, width, height, Camera::default(), true)
+}
+/// Interactive local viewport; omits PNG encoding while sharing raster and pick maps.
+pub fn render_view(
+    mesh: &Mesh,
+    edges: &[Edge],
+    width: u32,
+    height: u32,
+    camera: Camera,
+) -> Result<Frame, String> {
+    rasterize(mesh, edges, width, height, camera, false)
+}
+fn rasterize(
+    mesh: &Mesh,
+    edges: &[Edge],
+    width: u32,
+    height: u32,
+    camera: Camera,
+    encode: bool,
+) -> Result<Frame, String> {
+    if !camera.yaw.is_finite()
+        || !camera.pitch.is_finite()
+        || !camera.zoom.is_finite()
+        || camera.zoom <= 0.
+        || camera.pan.iter().any(|v| !v.is_finite())
+    {
+        return Err("invalid_params: non-finite camera".into());
+    }
     if !(64..=768).contains(&width) || !(64..=768).contains(&height) {
         return Err("invalid_params: dimensions must be 64..768".into());
     }
     if mesh.points.is_empty() || mesh.triangles.is_empty() {
         return Err("empty_document: no mesh to render".into());
     }
-    let raw: Vec<_> = mesh.points.iter().map(|p| camera(world(p))).collect();
+    let raw: Vec<_> = mesh
+        .points
+        .iter()
+        .map(|p| camera.transform(world(p)))
+        .collect();
     let mut lo = [f64::INFINITY; 2];
     let mut hi = [f64::NEG_INFINITY; 2];
     for p in &raw {
@@ -110,15 +197,47 @@ pub fn render(mesh: &Mesh, edges: &[Edge], width: u32, height: u32) -> Result<Fr
             hi[i] = hi[i].max(p[i]);
         }
     }
-    let scale = ((width - 48) as f64 / (hi[0] - lo[0])).min((height - 48) as f64 / (hi[1] - lo[1]));
-    let center = [lo[0] + (hi[0] - lo[0]) / 2., lo[1] + (hi[1] - lo[1]) / 2.];
+    let (scale, center) = if encode {
+        (
+            camera.zoom
+                * ((width - 48) as f64 / (hi[0] - lo[0]))
+                    .min((height - 48) as f64 / (hi[1] - lo[1])),
+            [lo[0] + (hi[0] - lo[0]) / 2., lo[1] + (hi[1] - lo[1]) / 2.],
+        )
+    } else {
+        // A world-space bounding sphere keeps orbit scale and pivot stable.
+        let mut low = [f64::INFINITY; 3];
+        let mut high = [f64::NEG_INFINITY; 3];
+        for point in &mesh.points {
+            for i in 0..3 {
+                low[i] = low[i].min(point[i].get());
+                high[i] = high[i].max(point[i].get());
+            }
+        }
+        let pivot = std::array::from_fn(|i| low[i] + (high[i] - low[i]) / 2.);
+        let radius = mesh
+            .points
+            .iter()
+            .map(|p| {
+                (0..3)
+                    .map(|i| (p[i].get() - pivot[i]).powi(2))
+                    .sum::<f64>()
+                    .sqrt()
+            })
+            .fold(0f64, f64::max);
+        let p = camera.transform(pivot);
+        (
+            camera.zoom * width.min(height).saturating_sub(72).max(16) as f64 / (2. * radius),
+            [p[0], p[1]],
+        )
+    };
     if !scale.is_finite() || scale <= 0. || center.iter().any(|n| !n.is_finite()) {
         return Err("validation_failed: non-finite or degenerate projection".into());
     }
     let project = |p: [f64; 3]| {
         [
-            (p[0] - center[0]) * scale + width as f64 / 2.,
-            height as f64 / 2. - (p[1] - center[1]) * scale,
+            (p[0] - center[0]) * scale + width as f64 * (0.5 + camera.pan[0]),
+            height as f64 * (0.5 + camera.pan[1]) - (p[1] - center[1]) * scale,
             p[2],
         ]
     };
@@ -189,7 +308,7 @@ pub fn render(mesh: &Mesh, edges: &[Edge], width: u32, height: u32) -> Result<Fr
         let projected: Vec<_> = edge
             .points
             .iter()
-            .map(|p| project(camera(world(p))))
+            .map(|p| project(camera.transform(world(p))))
             .collect();
         if projected.iter().flatten().any(|n| !n.is_finite()) {
             return Err("validation_failed: non-finite edge projection".into());
@@ -233,11 +352,12 @@ pub fn render(mesh: &Mesh, edges: &[Edge], width: u32, height: u32) -> Result<Fr
         .map(|(k, v)| (v, k))
         .collect::<BTreeMap<_, _>>();
     let metadata = json!({"width":width,"height":height,"backend":"cpu","mime_type":"image/png",
-        "camera":{"projection":"orthographic","direction":[1,1,1],"scale":scale,"center":center},
-        "images":{"shaded":STANDARD.encode(png_bytes(width,height,&colors)?),"face-id":STANDARD.encode(png_bytes(width,height,&id_rgb(&face_pixels))?),"edge-id":STANDARD.encode(png_bytes(width,height,&id_rgb(&edge_pixels))?)},
+        "camera":{"projection":"orthographic","direction":camera.direction(),"yaw":camera.yaw,"pitch":camera.pitch,"zoom":camera.zoom,"pan":camera.pan,"scale":scale,"center":center},
+        "images":if encode {json!({"shaded":STANDARD.encode(png_bytes(width,height,&colors)?),"face-id":STANDARD.encode(png_bytes(width,height,&id_rgb(&face_pixels))?),"edge-id":STANDARD.encode(png_bytes(width,height,&id_rgb(&edge_pixels))?)})}else{json!({})},
         "face_ids":face_refs,"edge_ids":edge_refs});
     Ok(Frame {
         metadata,
+        rgb: colors,
         width,
         height,
         faces: face_pixels,

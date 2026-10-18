@@ -69,3 +69,21 @@ fn ambiguous_edges_are_never_silently_selected_and_bad_mesh_is_rejected() {
         .unwrap()
         .contains("vertex"));
 }
+
+#[test]
+fn local_orbit_has_stable_scale_and_independent_pick_maps() {
+    let (mesh, edges) = geometry();
+    let first =
+        cad_render::render_view(&mesh, &edges, 192, 160, cad_render::Camera::default()).unwrap();
+    let mut camera = cad_render::Camera::default();
+    camera.yaw += 0.7;
+    let second = cad_render::render_view(&mesh, &edges, 192, 160, camera).unwrap();
+    assert_ne!(first.rgb(), second.rgb());
+    assert_eq!(
+        first.metadata["camera"]["scale"],
+        second.metadata["camera"]["scale"]
+    );
+    assert!(first.metadata["images"].as_object().unwrap().is_empty());
+    camera.zoom = f64::NAN;
+    assert!(cad_render::render_view(&mesh, &edges, 192, 160, camera).is_err());
+}

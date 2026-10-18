@@ -1040,6 +1040,95 @@
         "y"
       ],
       "additionalProperties": false
+    },
+    "Scene": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/State"
+        },
+        "mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mesh"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Edge"
+          }
+        },
+        "can_undo": {
+          "type": "boolean"
+        },
+        "can_redo": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "state",
+        "mesh",
+        "edges",
+        "can_undo",
+        "can_redo"
+      ],
+      "additionalProperties": false
+    },
+    "PreviewOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "box"
+            },
+            "size": {
+              "description": "Dimensions in mm",
+              "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "size"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "fillet"
+            },
+            "edge": {
+              "description": "Opaque current-revision edge reference",
+              "type": "string"
+            },
+            "radius": {
+              "description": "Radius in mm",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "edge",
+            "radius"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   },
   "error_kinds": [
@@ -1643,6 +1732,103 @@
       "preconditions": [
         "document_exists",
         "nonempty_body"
+      ]
+    },
+    {
+      "id": "render.scene",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "render.scene"
+          },
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "document"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/Scene"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists"
+      ]
+    },
+    {
+      "id": "model.preview",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "model.preview"
+          },
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "operation": {
+            "$ref": "#/$defs/PreviewOperation"
+          },
+          "id": {}
+        },
+        "required": [
+          "op",
+          "document",
+          "revision",
+          "operation"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/Scene"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
       ]
     }
   ],

@@ -1,4 +1,4 @@
-# 产品命令协议（P4）
+# 产品命令协议（P4/P5）
 
 Rust CLI/MCP 保留 op 命令形态，默认连接 P3 共享服务；内部 worker 新封装版本为 1.0，详见 [中性协议与重试语义](../protocol/README.md)。
 CLI 使用本地 UTF-8 JSONL。`id` 可选，C++ 服务会原样回显。
@@ -23,6 +23,8 @@ mutation 和 state 的 data 为状态摘要。查询不会增加 revision。所�
 | model.fillet | document、revision、edge、radius | 新状态；单边圆角 |
 | document.undo/redo | document、revision | 新状态与递增 revision |
 | topology.edges | document | reference、length、采样折线 points |
+| render.scene | document | 原子 state/mesh/edges/can_undo/can_redo，允许空文档 |
+| model.preview | document/revision/operation（box/fillet） | 临时候选 Scene；正式文档及历史不变 |
 | render.mesh | document | points、triangles（vertices + face reference） |
 | render.snapshot | document、可选 width/height/directory | render_id、revision、camera、尺寸、三张 base64 PNG；可选 files 路径 |
 | render.pick | render_id、整数 x/y、可选 target=edge/face | 当前引用或 null、ambiguous、文档版本与帧上下文 |
@@ -58,3 +60,5 @@ P2 起目录来自 protocol/contract.json；$ref 相对此文件的 $defs 解析
 产品目录合并核心 commands 与 access_commands，MCP inputSchema 使用同一 neutral 来源并展开本地 $ref。
 C++ 核心目录仍不包含服务/渲染扩展；产品入口拒绝未声明字段。原有 op、mm 单位、实体 token 和核心成功结果布局保留。
 服务管理、事件恢复、images 字段迁移与错误核对流程见 [P4 迁移指南](migration-p4.md)。
+
+P5 候选引用属于独立临时命名空间，确认应提交原 Box/Fillet 命令并重新查询正式场景，不能将候选 edge 当作正式引用。

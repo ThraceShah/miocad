@@ -1,0 +1,19 @@
+[package]
+name = "cad-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+eframe.workspace = true
+cad-ui-egui.workspace = true
+cad-protocol.workspace = true
+cad-render.workspace = true
+cad-client.workspace = true
+cad-access.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+# eframe's defaults are disabled; select real native backends explicitly.
+wgpu = { version = "=27.0.1", default-features = false, features = ["std", "wgsl", "vulkan", "gles"] }

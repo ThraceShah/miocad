@@ -117,6 +117,26 @@ struct Commander::Impl {
             triangles.push_back({{"vertices", triangle.vertices}, {"face", token(context.document_id, context.document->revision(), "face", triangle.face)}});
         return {{"points", mesh.points}, {"triangles", triangles}};
     }
+    Json scene(Context& context) {
+        return {{"state", document_state(*context.document)},
+            {"mesh", context.document->shape() ? mesh(context) : Json(nullptr)},
+            {"edges", context.document->shape() ? edges(context) : Json::array()},
+            {"can_undo", context.document->can_undo()}, {"can_redo", context.document->can_redo()}};
+    }
+    Json preview(Context& context) {
+        // Candidate owns only temporary history; mutations clone geometry as usual.
+        // Use a distinct reference namespace so candidate edges can never target live geometry.
+        Document candidate = *context.document;
+        const auto& operation = context.request.at("operation");
+        Context temporary{operation, context.document_id, &candidate};
+        if (operation.at("kind") == "box") box(temporary);
+        else {
+            if (!candidate.shape()) throw CommandError("empty_document", "empty document");
+            fillet(temporary);
+        }
+        temporary.document_id = "preview." + new_id();
+        return scene(temporary);
+    }
     Json export_native(Context& context) {
         const auto path = context.request.at("path").get<std::string>();
         if (path.empty() || path.find('\0') != std::string::npos || std::filesystem::path(path).extension() != ".smb")
@@ -142,7 +162,7 @@ struct Commander::Impl {
                 {"capabilities",&Impl::capabilities},{"commands.list",&Impl::list},{"document.create",&Impl::create},
                 {"document.list",&Impl::document_list},{"document.state",&Impl::state},{"model.box",&Impl::box},{"model.fillet",&Impl::fillet},
                 {"document.undo",&Impl::undo},{"document.redo",&Impl::redo},{"topology.edges",&Impl::edges},
-                {"render.mesh",&Impl::mesh},{"export.native",&Impl::export_native}};
+                {"render.scene",&Impl::scene},{"model.preview",&Impl::preview},{"render.mesh",&Impl::mesh},{"export.native",&Impl::export_native}};
             std::vector<Spec> result;
             for(const auto& item:protocol::contract().at("commands")) {
                 const auto id=item.at("id").get<std::string>();

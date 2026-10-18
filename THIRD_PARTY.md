@@ -18,3 +18,10 @@ P4 adds png 0.17.16 and base64 0.22.1 (both MIT OR Apache-2.0), plus their locke
 Local crate metadata and license files were checked. scripts/package.py copies available dependency license/notice files,
 upstream SMLib/JSON notices, Cargo.lock and a name/version/license inventory into the native bundle.
 The Rust renderer encodes PNGs; no Python renderer or interpreter is included in the product package.
+
+P5 pins egui/eframe 0.33.3 and wgpu 27.0.1 (MIT OR Apache-2.0; metadata MSRV 1.88, compatible with Rust 1.90).
+The native host enables Vulkan/GLES explicitly. Local metadata and package notice files were inspected.
+The packager also includes nested notices and epaint_default_fonts font license texts (Hack, Ubuntu/UFL, Noto/OFL, emoji icon font).
+GUI test Xvfb/XTest/ffmpeg are internal verification tools, not bundled product runtimes.
+
+Some egui crate archives omit their workspace-root license files. Unmodified upstream 0.33.3 license texts are retained in third_party/notices/egui-0.33.3 and copied into the bundle.
