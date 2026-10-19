@@ -1052,89 +1052,89 @@ impl Workspace {
         let width = 200f32.min((w * 0.38).max(145.));
         egui::Area::new(egui::Id::new("model-tree-overlay"))
             .order(egui::Order::Foreground)
-            .fixed_pos(egui::pos2(x + 12., y + 12.))
+            .fixed_pos(egui::pos2(x + 12., y))
             .show(ctx, |ui| {
                 ui.set_width(width);
-                egui::Frame::new()
+                let frame = egui::Frame::new()
                     .fill(Color32::from_rgba_unmultiplied(247, 250, 252, 205))
                     .stroke(egui::Stroke::new(1., Color32::from_black_alpha(25)))
                     .corner_radius(8)
-                    .inner_margin(10)
-                    .show(ui, |ui| {
-                        ui.visuals_mut().override_text_color = Some(Color32::from_rgb(44, 65, 79));
-                        let response = egui::CollapsingHeader::new("FeatureManager")
-                            .id_salt("model-tree")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                let Some(doc) = self.model.current() else {
-                                    return;
-                                };
-                                let id = doc.document.clone();
-                                let revision = doc.revision;
-                                ui.label(
-                                    RichText::new(format!("Solid body · r{}", revision.get()))
-                                        .strong()
-                                        .color(Color32::from_rgb(44, 65, 79)),
-                                );
-                                ui.label(format!(
-                                    "{} faces · {} edges",
-                                    doc.data.faces.unwrap_or(0),
-                                    doc.data.edges.unwrap_or(0)
-                                ));
-                                egui::ScrollArea::vertical()
-                                    .id_salt("tree-scroll")
-                                    .max_height((h * 0.42).clamp(90., 320.))
-                                    .show(ui, |ui| {
-                                        egui::CollapsingHeader::new("Operations")
-                                            .id_salt("tree-history")
-                                            .default_open(true)
-                                            .show(ui, |ui| {
-                                                let mut boxes = 0;
-                                                let mut fillets = 0;
-                                                for e in self.history.iter().filter(|e| {
-                                                    e.document == id
-                                                        && e.revision.get() <= revision.get()
-                                                }) {
-                                                    let label = match e.command.as_str() {
-                                                        "model.box" => {
-                                                            boxes += 1;
-                                                            format!("Box {boxes}")
-                                                        }
-                                                        "model.fillet" => {
-                                                            fillets += 1;
-                                                            format!("Fillet {fillets}")
-                                                        }
-                                                        "document.undo" => "Undo".into(),
-                                                        "document.redo" => "Redo".into(),
-                                                        _ => continue,
-                                                    };
-                                                    ui.label(format!(
-                                                        "{label} · r{}",
-                                                        e.revision.get()
-                                                    ))
-                                                    .on_hover_text("Committed operation record");
-                                                }
-                                                if self.history_truncated {
-                                                    ui.small("Earlier records unavailable");
-                                                }
-                                                if boxes + fillets == 0 {
-                                                    ui.small("No operation records");
-                                                }
-                                            });
-                                        let tree_scene = self
-                                            .model
-                                            .scene
-                                            .as_ref()
-                                            .filter(|s| s.revision == revision)
-                                            .map(|s| s.scene.clone());
-                                        let edges = tree_scene
-                                            .as_ref()
-                                            .map(|s| s.edges.as_slice())
-                                            .unwrap_or(&[]);
-                                        egui::CollapsingHeader::new(format!(
-                                            "Edges ({})",
-                                            edges.len()
-                                        ))
+                    .inner_margin(10);
+                let inner_height = (h - frame.total_margin().sum().y).max(0.);
+                let panel = frame.show(ui, |ui| {
+                    ui.set_height(inner_height);
+                    ui.visuals_mut().override_text_color = Some(Color32::from_rgb(44, 65, 79));
+                    let response = egui::CollapsingHeader::new("FeatureManager")
+                        .id_salt("model-tree")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            let Some(doc) = self.model.current() else {
+                                return;
+                            };
+                            let id = doc.document.clone();
+                            let revision = doc.revision;
+                            ui.label(
+                                RichText::new(format!("Solid body · r{}", revision.get()))
+                                    .strong()
+                                    .color(Color32::from_rgb(44, 65, 79)),
+                            );
+                            ui.label(format!(
+                                "{} faces · {} edges",
+                                doc.data.faces.unwrap_or(0),
+                                doc.data.edges.unwrap_or(0)
+                            ));
+                            egui::ScrollArea::vertical()
+                                .id_salt("tree-scroll")
+                                .max_height(ui.available_height())
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    egui::CollapsingHeader::new("Operations")
+                                        .id_salt("tree-history")
+                                        .default_open(true)
+                                        .show(ui, |ui| {
+                                            let mut boxes = 0;
+                                            let mut fillets = 0;
+                                            for e in self.history.iter().filter(|e| {
+                                                e.document == id
+                                                    && e.revision.get() <= revision.get()
+                                            }) {
+                                                let label = match e.command.as_str() {
+                                                    "model.box" => {
+                                                        boxes += 1;
+                                                        format!("Box {boxes}")
+                                                    }
+                                                    "model.fillet" => {
+                                                        fillets += 1;
+                                                        format!("Fillet {fillets}")
+                                                    }
+                                                    "document.undo" => "Undo".into(),
+                                                    "document.redo" => "Redo".into(),
+                                                    _ => continue,
+                                                };
+                                                ui.label(format!(
+                                                    "{label} · r{}",
+                                                    e.revision.get()
+                                                ))
+                                                .on_hover_text("Committed operation record");
+                                            }
+                                            if self.history_truncated {
+                                                ui.small("Earlier records unavailable");
+                                            }
+                                            if boxes + fillets == 0 {
+                                                ui.small("No operation records");
+                                            }
+                                        });
+                                    let tree_scene = self
+                                        .model
+                                        .scene
+                                        .as_ref()
+                                        .filter(|s| s.revision == revision)
+                                        .map(|s| s.scene.clone());
+                                    let edges = tree_scene
+                                        .as_ref()
+                                        .map(|s| s.edges.as_slice())
+                                        .unwrap_or(&[]);
+                                    egui::CollapsingHeader::new(format!("Edges ({})", edges.len()))
                                         .id_salt("tree-edges")
                                         .show(ui, |ui| {
                                             for (i, e) in edges.iter().enumerate() {
@@ -1164,11 +1164,12 @@ impl Workspace {
                                                 }
                                             }
                                         });
-                                    });
-                            });
-                        self.geometry
-                            .record("tree-header", &response.header_response, true);
-                    });
+                                });
+                        });
+                    self.geometry
+                        .record("tree-header", &response.header_response, true);
+                });
+                self.geometry.record("tree-panel", &panel.response, true);
             });
     }
     pub fn show(&mut self, ctx: &egui::Context) -> Vec<Action> {
@@ -1625,6 +1626,13 @@ mod picking_tests {
             assert!((w.geometry.viewport[2] - size[0]).abs() < 2.);
             assert!(w.geometry.viewport[3] > size[1] * 0.75);
             assert!(w.geometry.controls["box"].rect[1] < w.geometry.viewport[1]);
+            let tree = w.geometry.controls["tree-panel"].rect;
+            assert!((tree[1] - w.geometry.viewport[1]).abs() < 1.);
+            assert!(
+                (tree[3] - w.geometry.viewport[3]).abs() < 1.,
+                "{tree:?} {:?}",
+                w.geometry.viewport
+            );
             let ratio = w.geometry.viewport[2] / w.geometry.viewport[3];
             assert!((w.viewport_size[0] as f32 / w.viewport_size[1] as f32 - ratio).abs() < 0.003);
             w.inspector_open = true;

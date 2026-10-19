@@ -528,3 +528,9 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 - 发布前后生产快照完全相同，文档 revision 5 / 2、cursor=9，原 owner PID=673288 未重启；三项持久服务 active，门户 HTTPS 200，miocad online=true。本地只读测试网关已关闭。
 
 证据：`artifacts/tablet-layout/`、`artifacts/tablet-webgl-2/`、`artifacts/tablet-webgpu-1/` 及相应原有建模测试目录（Git 忽略）。使用 Chromium 模拟触屏与实际 GPU 路径测试，尚未连接用户实体平板做硬件认证。未修改第三方内核源码、建模协议或生产几何。本地 Git 提交，不推送。
+
+## 2026-10-19：FeatureManager 与视口等高
+
+移除树滚动区 42% / 320px 的高度限制。透明叠加面板与视口上下对齐，扣除边框、标题与实体摘要后，剩余高度全部用于内部滚动；不挤占视口宽度。折叠树内容、顶部 Tree 隐藏功能保留。
+
+原布局单元测试新增面板顶端与高度断言（768×1024、820×1180、1280×820）；浏览器平板测试新增竖屏、打开参数栏和横屏后的等高断言。单元测试、Clippy、fmt、语法及 diff 检查通过；CTest `web_tablet_workspace` 含构建 fixture 2/2 通过（23.13秒），双指缩放/平移等原检查继续通过。实际 HTTPS 768×1024 / DPR2 等高及参数面板检查通过，无页面异常、RPC 只有 render.scene；截图位于 `artifacts/full-height-tree/`。生产文档快照前后完全相同，owner PID=673288 未重启，Web/relay active，门户 miocad online=true。没有修改第三方或建模逻辑。
