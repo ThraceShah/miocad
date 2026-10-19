@@ -1,8 +1,17 @@
 use crate::*;
 use egui::{Color32, RichText, Vec2};
 const ACCENT: Color32 = Color32::from_rgb(44, 210, 190);
+const SELECTED: Color32 = Color32::from_rgb(255, 189, 64);
 const MUTED: Color32 = Color32::from_rgb(141, 157, 174);
 const CANVAS: Color32 = Color32::from_rgb(242, 245, 248);
+struct PendingPick {
+    document: DocumentId,
+    revision: u64,
+    epoch: u64,
+    point: [f64; 2],
+    radius: [f64; 2],
+    deadline: f64,
+}
 pub struct Workspace {
     pub model: Model,
     pub browser_downloads: bool,
@@ -11,6 +20,7 @@ pub struct Workspace {
     pub session: String,
     pub cursor: u64,
     reconciliation_job: Option<u64>,
+    pending_pick: Option<PendingPick>,
     texture: Option<egui::TextureHandle>,
     frame: Option<Arc<cad_render::Frame>>,
     frame_epoch: u64,
@@ -29,6 +39,7 @@ impl Default for Workspace {
             session: String::new(),
             cursor: 0,
             reconciliation_job: None,
+            pending_pick: None,
             texture: None,
             frame: None,
             frame_epoch: 0,
@@ -350,7 +361,7 @@ impl Workspace {
             Mode::Fillet => {
                 ui.label(RichText::new("Edge fillet").strong());
                 ui.label(
-                    RichText::new("Click a visible edge in the viewport.")
+                    RichText::new("Tap near a visible edge to select it.")
                         .size(11.)
                         .color(MUTED),
                 );
@@ -371,12 +382,12 @@ impl Workspace {
                 });
                 ui.label(
                     RichText::new(if self.model.selection.is_some() {
-                        "1 edge selected"
+                        "1 edge selected · amber"
                     } else {
                         "No edge selected"
                     })
                     .color(if self.model.selection.is_some() {
-                        ACCENT
+                        SELECTED
                     } else {
                         MUTED
                     }),
@@ -575,6 +586,52 @@ impl Workspace {
             ui.label(RichText::new(format!("Event cursor {}", self.cursor)).size(10.));
         });
     }
+    fn resolve_pick(&mut self, now: f64) {
+        let Some(pending) = self.pending_pick.as_ref() else {
+            return;
+        };
+        if self.model.active.as_ref() != Some(&pending.document)
+            || self.model.view_epoch != pending.epoch
+            || self
+                .model
+                .current()
+                .is_none_or(|d| d.revision.get() != pending.revision)
+            || self.model.preview.is_some()
+            || !self.model.connected
+            || self.model.busy
+        {
+            self.pending_pick = None;
+            return;
+        }
+        if now > pending.deadline {
+            self.pending_pick = None;
+            self.model.notice =
+                "Picking frame unavailable. Tap the edge again after reconnecting.".into();
+            return;
+        }
+        if !self.frame_current() {
+            return;
+        }
+        let pending = self.pending_pick.take().unwrap();
+        if let Some(frame) = &self.frame {
+            if let Ok(pick) = frame.pick_edge_near(pending.point, pending.radius) {
+                if let Some(reference) = pick["reference"].as_str() {
+                    self.model.select_edge(reference.into(), pending.revision);
+                    self.model.mode = Mode::Fillet;
+                    self.model.notice =
+                        "Edge selected (amber). Preview a fillet or tap another edge.".into();
+                } else if pick["ambiguous"] == true {
+                    self.model.notice =
+                        "Several edges meet here. Tap farther along the desired edge.".into();
+                } else {
+                    if self.model.selection.take().is_some() {
+                        self.model.view_changed();
+                    }
+                    self.model.notice = "No visible edge nearby. Tap closer to an edge.".into();
+                }
+            }
+        }
+    }
     fn viewport(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -617,9 +674,10 @@ impl Workspace {
                     + delta.y as f64 / rect.height() as f64)
                     .clamp(-0.6, 0.6);
             } else {
-                self.model.camera.yaw -= delta.x as f64 * 0.008;
-                self.model.camera.pitch =
-                    (self.model.camera.pitch + delta.y as f64 * 0.008).clamp(-1.4, 1.4);
+                self.model.camera.orbit(
+                    [delta.x as f64, delta.y as f64],
+                    [rect.width() as f64, rect.height() as f64],
+                );
             }
             self.model.view_changed();
         }
@@ -635,6 +693,72 @@ impl Workspace {
             self.model.camera = cad_render::Camera::default();
             self.model.view_changed();
         }
+        let can_pick = self.model.preview.is_none() && !self.model.busy && self.model.connected;
+        let touch = ctx.input(|i| {
+            i.any_touches()
+                || i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Touch {
+                            phase: egui::TouchPhase::End,
+                            ..
+                        }
+                    )
+                })
+        });
+        if response.clicked() && can_pick {
+            // Touch release can already have removed hover_pos; the interaction owns its
+            // release position independently of hover state.
+            if let (Some(pos), Some(document)) =
+                (response.interact_pointer_pos(), self.model.active.clone())
+            {
+                let point = [
+                    (pos.x - rect.left()) as f64 / rect.width() as f64
+                        * self.viewport_size[0] as f64,
+                    (pos.y - rect.top()) as f64 / rect.height() as f64
+                        * self.viewport_size[1] as f64,
+                ];
+                let slop = if touch { 14. } else { 6. };
+                self.pending_pick = Some(PendingPick {
+                    document,
+                    revision: self.model.current().map_or(0, |d| d.revision.get()),
+                    epoch: self.model.view_epoch,
+                    point,
+                    radius: [
+                        slop * self.viewport_size[0] as f64 / rect.width() as f64,
+                        slop * self.viewport_size[1] as f64 / rect.height() as f64,
+                    ],
+                    deadline: ctx.input(|i| i.time) + 3.,
+                });
+                if !self.frame_current() {
+                    self.model.notice = "Updating pick map… your tap is queued.".into();
+                }
+            }
+        }
+        self.resolve_pick(ctx.input(|i| i.time));
+        if self.pending_pick.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+        self.model.hover = None;
+        if response.hovered() && !response.dragged() && can_pick && self.frame_current() {
+            if let (Some(pos), Some(frame)) = (response.hover_pos(), &self.frame) {
+                let point = [
+                    (pos.x - rect.left()) as f64 / rect.width() as f64
+                        * self.viewport_size[0] as f64,
+                    (pos.y - rect.top()) as f64 / rect.height() as f64
+                        * self.viewport_size[1] as f64,
+                ];
+                if let Ok(pick) = frame.pick_edge_near(
+                    point,
+                    [
+                        6. * self.viewport_size[0] as f64 / rect.width() as f64,
+                        6. * self.viewport_size[1] as f64 / rect.height() as f64,
+                    ],
+                ) {
+                    self.model.hover = pick["reference"].as_str().map(str::to_owned);
+                }
+            }
+        }
         let has_scene = self
             .model
             .display_scene()
@@ -647,6 +771,8 @@ impl Workspace {
                         scene: bound.scene.clone(),
                         camera: self.model.camera,
                         selected: self.model.selection.as_ref().map(|s| s.reference.clone()),
+                        hovered: self.model.hover.clone(),
+                        display_size: [rect.width(), rect.height()],
                         size: self.viewport_size,
                     }
                     .callback(rect),
@@ -694,42 +820,6 @@ impl Workspace {
                 Color32::from_rgb(97, 117, 133),
             );
         }
-        let frame_valid = self.frame_epoch == self.model.view_epoch
-            && self.frame_document == self.model.active
-            && self
-                .model
-                .current()
-                .is_some_and(|d| d.revision.get() == self.frame_revision)
-            && !self.frame_preview
-            && self.model.preview.is_none()
-            && !self.model.busy;
-        if response.hovered() && frame_valid {
-            if let (Some(pos), Some(frame)) = (response.hover_pos(), &self.frame) {
-                let x = ((pos.x - rect.left()) / rect.width() * self.viewport_size[0] as f32)
-                    .floor() as u32;
-                let y = ((pos.y - rect.top()) / rect.height() * self.viewport_size[1] as f32)
-                    .floor() as u32;
-                if let Ok(pick) = frame.pick(x, y, "edge") {
-                    self.model.hover = pick["reference"].as_str().map(str::to_string);
-                    if response.clicked() {
-                        if let Some(reference) = pick["reference"].as_str() {
-                            self.model
-                                .select_edge(reference.into(), self.frame_revision);
-                            self.model.mode = Mode::Fillet;
-                        } else {
-                            self.model.notice = if pick["ambiguous"] == true {
-                                "Ambiguous edge. Try a nearby pixel or use geometric queries."
-                            } else {
-                                "No edge at this pixel."
-                            }
-                            .into();
-                        }
-                    }
-                }
-            }
-        } else {
-            self.model.hover = None;
-        }
         painter.text(
             rect.left_top() + Vec2::new(22., 22.),
             egui::Align2::LEFT_TOP,
@@ -741,7 +831,7 @@ impl Workspace {
             egui::FontId::proportional(11.),
             Color32::from_rgb(97, 117, 133),
         );
-        painter.text(rect.left_bottom()+Vec2::new(20.,-20.),egui::Align2::LEFT_BOTTOM,if self.model.hover.is_some(){"Visible edge · click to select"}else{"Drag to orbit   ·   Shift/right drag to pan   ·   Scroll to zoom   ·   Double-click to fit"},egui::FontId::proportional(11.),Color32::from_rgb(97,117,133));
+        painter.text(rect.left_bottom()+Vec2::new(20.,-20.),egui::Align2::LEFT_BOTTOM,if self.model.hover.is_some(){"Visible edge · tap/click to select"}else{"Drag model to rotate   ·   Shift/right drag to pan   ·   Scroll to zoom   ·   Double-click to fit"},egui::FontId::proportional(11.),Color32::from_rgb(97,117,133));
         if self.local_backend.is_some() || self.frame.is_some() {
             painter.text(
                 rect.right_top() + Vec2::new(-20., 22.),
@@ -944,5 +1034,101 @@ impl Workspace {
             .frame(egui::Frame::new().fill(CANVAS).inner_margin(0))
             .show(ctx, |ui| self.viewport(ui, ctx));
         actions
+    }
+}
+
+#[cfg(test)]
+mod picking_tests {
+    use super::*;
+    use serde_json::json;
+    fn workspace() -> (Workspace, Event, egui::Context) {
+        let mut w = Workspace {
+            viewport_size: [96, 96],
+            ..Default::default()
+        };
+        w.model.connected = true;
+        let state:DocumentState=serde_json::from_value(json!({"revision":1,"units":"mm","empty":false,"valid":true,"volume":1,"faces":1,"edges":1})).unwrap();
+        let doc = DocumentId::new("doc").unwrap();
+        w.model.update_documents(vec![DocumentResult {
+            document: doc.clone(),
+            revision: Revision::new(1).unwrap(),
+            data: state.clone(),
+        }]);
+        w.model.select(doc.clone());
+        let mesh:Mesh=serde_json::from_value(json!({"points":[[0,0,0],[10,0,0],[0,10,0]],"triangles":[{"vertices":[0,1,2],"face":"face"}]})).unwrap();
+        let edges: Vec<Edge> = serde_json::from_value(
+            json!([{"reference":"edge","points":[[0,0,0],[10,0,0]],"length":10}]),
+        )
+        .unwrap();
+        w.model.set_scene(BoundScene {
+            document: doc.clone(),
+            revision: Revision::new(1).unwrap(),
+            scene: Arc::new(Scene {
+                state,
+                mesh: Some(mesh.clone()),
+                edges: edges.clone(),
+                can_undo: false,
+                can_redo: false,
+            }),
+        });
+        let mut frame = cad_render::render_view(&mesh, &edges, 96, 96, w.model.camera).unwrap();
+        frame.metadata["document"] = json!("doc");
+        frame.metadata["revision"] = json!(1);
+        let point = (0..96)
+            .flat_map(|y| (0..96).map(move |x| (x, y)))
+            .find(|(x, y)| frame.pick(*x, *y, "edge").unwrap()["reference"] == "edge")
+            .unwrap();
+        w.pending_pick = Some(PendingPick {
+            document: doc.clone(),
+            revision: 1,
+            epoch: w.model.view_epoch,
+            point: [point.0 as f64 + 0.5, point.1 as f64 + 0.5],
+            radius: [6., 6.],
+            deadline: 10.,
+        });
+        let event = Event::View {
+            epoch: w.model.view_epoch,
+            rgb: frame.viewport_rgb(None),
+            frame: Arc::new(frame),
+            width: 96,
+            height: 96,
+            document: doc,
+            revision: Revision::new(1).unwrap(),
+            preview: false,
+        };
+        (w, event, egui::Context::default())
+    }
+    #[test]
+    fn tap_waits_for_matching_frame_and_then_selects_once() {
+        let (mut w, event, ctx) = workspace();
+        w.resolve_pick(0.);
+        assert!(w.model.selection.is_none());
+        assert!(w.pending_pick.is_some());
+        w.apply(event, &ctx);
+        w.resolve_pick(1.);
+        assert_eq!(w.model.selection.as_ref().unwrap().reference, "edge");
+        assert!(w.pending_pick.is_none());
+        let epoch = w.model.view_epoch;
+        w.resolve_pick(2.);
+        assert_eq!(w.model.view_epoch, epoch);
+    }
+    #[test]
+    fn queued_tap_is_discarded_on_camera_or_document_revision_change_and_timeout() {
+        let (mut w, event, ctx) = workspace();
+        w.model.view_changed();
+        w.apply(event, &ctx);
+        w.resolve_pick(1.);
+        assert!(w.model.selection.is_none());
+        assert!(w.pending_pick.is_none());
+        let (mut w, event, ctx) = workspace();
+        w.model.documents[0].revision = Revision::new(2).unwrap();
+        w.apply(event, &ctx);
+        w.resolve_pick(1.);
+        assert!(w.model.selection.is_none());
+        assert!(w.pending_pick.is_none());
+        let (mut w, _, _) = workspace();
+        w.resolve_pick(11.);
+        assert!(w.pending_pick.is_none());
+        assert!(w.model.selection.is_none());
     }
 }

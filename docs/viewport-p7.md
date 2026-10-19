@@ -103,3 +103,24 @@ scripts/publish-web.sh
 原 Web 的 wgpu 标签指服务端 compute 渲染，浏览器只有 egui 纹理显示。现在浏览器在自己的 GPU 上对缓存三角网格和边进行 depth-tested rasterization，WebGPU 优先、WebGL2 回退。旋转/平移/缩放逐输入重绘本地相机，不清空等待远程位图。相机静止 150ms 后合并一次服务端视图请求；返回帧仍须满足 epoch、相机、尺寸和文档版本才能用于拾取与确认。原来的共享 Frame/Agent 截图协议保持有效，但交互显示不再被网络帧阻塞。
 
 浏览器回归：`CAD_PLAYWRIGHT=<playwright目录> node tests/web_orbit.cjs`，`CAD_TEST_GPU=webgl` 测回退；可用 `CAD_WEB_URL` 指向本地只读测试网关。测试模拟 48 次触屏移动，阻塞 `/api/view`，验证多张中途截图均有模型且内容变化、无页面异常、WebGPU 确有本地队列提交；记录刷新回调时间，不将其冒称所有设备的实测 GPU FPS。浏览器图形启动参数仅属于测试工具，不要求用户配置浏览器。
+
+### 触屏旋转、边拾取与高亮（2026-10-19）
+
+单指/鼠标拖动采用抓住模型的转台规则：向右拖动时可见前表面向右移动，向下时向下移动；按视口较短边归一化灵敏度，保留 pitch 极限以避免翻转。平移不变。
+
+UI 从单像素拾取改为在当前可见 Edge ID 图上搜索最近边：鼠标半径 6 CSS px，触屏半径 14 CSS px，分别换算到拾取图坐标；只搜索可见 ID，不透选遮挡边。交汇处最近距离不足 1 像素的候选保持歧义并提示沿边移动。触摸松手使用 interaction position，而非依赖已经消失的 hover position。新相机的 ID 帧还未到达时排队点击，最长 3 秒；相机、文档、版本、连接或预览状态改变即丢弃，绝不使用旧图选择。
+
+Web 边线改为 GPU 屏幕空间三角带，保持 CSS 宽度：普通线约 1.3px，悬停青色约 3.6px，选中琥珀色约 5px；仍进行深度测试，遮挡部分不绘制。鼠标悬停立即反馈；选中后显示状态提示。相机 uniform 从 48 扩为 64 字节以提供显示尺寸，网格仍按场景及高亮状态缓存。
+
+固化测试：
+
+```bash
+# 先构建 C++ / Rust / WASM 产品并安装 Playwright；CAD_PLAYWRIGHT 指向其包目录。
+PATH="$HOME/.cargo/bin:$PATH" scripts/build-web.sh
+CAD_PLAYWRIGHT=/path/to/playwright CAD_BIN=target/release CAD_TEST_DPR=2 node tests/web_interaction.cjs
+CAD_PLAYWRIGHT=/path/to/playwright CAD_BIN=target/release CAD_TEST_GPU=webgpu CAD_TEST_DPR=1 node tests/web_interaction.cjs
+# CAD_ENABLE_WEB_TESTS=ON 时自动登记；复用 rust_products 构建 fixture。
+CAD_PLAYWRIGHT=/path/to/playwright ctest --test-dir build -R '^web_touch_and_picking$' --output-on-failure
+```
+
+测试在独立临时 CAD 服务创建 Box，不访问生产文档。逐条验证九条可见边的 10 CSS px 偏移触摸、琥珀/青色像素及实际 Fillet 预览所引用的 Edge；另验证旋转后的三条边、输入方向、延迟帧到达后的排队选择、状态不提交和页面异常。DPR 2 同时设置测试 Chromium 的原生比例和上下文比例，避免只模拟 JS DPR 时 ResizeObserver 的物理尺寸与实际画布不一致。Rust 回归覆盖视口缩放下的方向一致性、最近边/歧义/遮挡以及过期排队点击的拒绝。证据保存到 `artifacts/interaction-<backend>-<dpr>/`，包含 JSON、PNG 和失败截图。

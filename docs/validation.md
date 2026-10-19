@@ -479,3 +479,22 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 证据：`artifacts/orbit-https/`、`artifacts/orbit-https-webgl/`、`artifacts/orbit-https-auth/` 及 `artifacts/orbit/{before,after}-deploy.json`（均 Git 忽略）。本地测试网关和临时 Xvfb 已关闭。
 
 测试环境问题：Chromium 141 在原 SwiftShader/ANGLE 参数下连独立 WebGPU 清屏程序也会丢失设备并报告 external Instance。WebGPU 测试改用测试进程自己的 Vulkan 图形参数后通过；WebGL2 软件回退也单独验证。没有修改系统浏览器、全局网络、第三方源码，亦没有加入未经证实的应用实例生命周期补丁。客户端显示与服务端截图依照同一场景/投影，但 raster 抗锯齿及边线宽度不保证逐像素相同；精确 B-Rep 和拓扑引用仍由服务端内核负责。
+
+## 2026-10-19：触屏旋转、边命中容差和明显高亮
+
+问题确认：原水平 yaw -= dx 令前表面逆着手指移动；拾取仅检查单像素且依赖 hover，触摸松手/刚旋转后匹配 ID 帧尚未返回时可能静默漏选；客户端 GPU 选中线仍只有一像素。
+
+修改：抓取式转台随手指方向、按视口归一化灵敏度；鼠标 6 / 触屏 14 CSS px 椭圆命中范围，选择最近可见 ID，交点近似等距保持歧义，遮挡边不透选。点击使用交互位置并可排队等候新帧，3 秒超时及 epoch / 文档 / revision / 连接 / 预览变化均使其失效。边线改为有深度测试的屏幕空间三角带，悬停青色、选中加粗琥珀色，选中状态文本同色；服务端精确模型/事务协议不变。
+
+验证：
+- `cargo test --workspace --locked`：36 项通过；新增抓取方向、视口尺寸一致性、命中容差、最近边/歧义/遮挡、队列单次解析及相机/版本/超时失效测试。
+- native / wasm32 相关 Clippy (`-D warnings`)、fmt、JS 语法、diff 检查通过。
+- CTest 新增 `web_touch_and_picking`，复用 `rust_products` fixture，在独立临时 SMLib 服务中创建 Box；无需读取生产 runtime。`ctest -R '^web_(workspace|touch_and_picking)$'`：构建 fixture、既有完整建模闭环、新触屏拾取测试 3/3 通过，总耗时约 113 秒。
+- WebGL2 DPR 1 / DPR 2、WebGPU DPR 1 真浏览器通过：九条可见边在偏离线条 10 CSS px 的触摸位置均选中，并逐条用实际 Fillet 预览请求核对 Edge 引用。悬停青色与选中琥珀色以 PNG 像素核验，选中线有数百至千余可见琥珀像素；DPR 2 / WebGPU 另测旋转后的三条边及新 ID 帧被阻塞时排队点击的解析。所有预览、相机、选择操作后文档快照不变，无页面异常。
+- 为使高分屏回归真实可靠，测试 Chromium 同时设置原生 `--force-device-scale-factor` 和上下文 DPR；仅改上下文 DPR 会使测试版 Chromium ResizeObserver 的物理尺寸与 JS DPR 不一致，已由真实截图发现。没有修改产品或第三方代码来绕过此测试环境差异。
+- 最终 HTTPS 部署后重新跑 `web_orbit.cjs`：48 次触屏移动，远程视图返回被阻塞时所有采样仍有模型、五种不同图像，约 3 秒内 149 次客户端 GPU 提交，刷新回调中位数 / P95 约 16.7ms，无异常。`web_trusted.cjs` 免码进入、刷新、嵌套路径、资源/WASM 和 Cookie 回归通过。
+- 发布前后两个生产文档仍 revision 3 / 2 且 valid=true，cursor=7，worker/session 和 owner PID=673288 保持不变；三项 systemd 服务 active，门户 HTTPS 200、miocad online=true。
+
+固化源码：`tests/web_interaction.cjs`、`crates/cad-render/src/interaction_tests.rs`、widgets 内 pending-pick 回归及 CMake 测试登记。运行说明见 `docs/viewport-p7.md`。证据位于 Git 忽略的 `artifacts/interaction-*`、`artifacts/interaction-rust-tests.log`、CTest 日志和 `artifacts/interaction-deployment/`（含部署前后快照）。临时测试服务已关闭。
+
+边界：命中容差并不消除交汇或极细、互相接近的边的歧义，此时提示沿目标边移动；仍按当前可见网格 ID 拾取，不是精确 B-Rep 射线求交。测试覆盖 Box 的所有九条可见边和旋转后的代表边，未声称任意复杂曲面、遮挡情况或所有实体触屏设备已全面认证。代码本地提交，不推送。

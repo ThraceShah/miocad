@@ -1,0 +1,67 @@
+use super::*;
+#[test]
+fn grab_orbit_front_surface_follows_finger_and_scales_with_viewport() {
+    let initial = Camera::default();
+    let front = initial.direction();
+    let p = initial.projected_axis(front);
+    let mut right = initial;
+    right.orbit([40., 0.], [640., 640.]);
+    assert!(
+        right.projected_axis(front)[0] > p[0],
+        "front surface must follow rightward drag"
+    );
+    let mut down = initial;
+    down.orbit([0., 40.], [640., 640.]);
+    assert!(
+        down.projected_axis(front)[1] > p[1],
+        "front surface must follow downward drag"
+    );
+    let mut scaled = initial;
+    scaled.orbit([80., 0.], [1280., 1280.]);
+    assert_eq!(scaled, right);
+    right.orbit([-40., 0.], [640., 640.]);
+    assert!((right.yaw - initial.yaw).abs() < 1e-12);
+    down.orbit([0., 100000.], [640., 640.]);
+    assert_eq!(down.pitch, 1.4);
+}
+#[test]
+fn touch_hit_slop_nearest_junction_ambiguity_and_hidden_edges() {
+    let mut frame = Frame {
+        metadata: json!({}),
+        rgb: vec![0; 64 * 64 * 3],
+        depth_rgb: vec![],
+        width: 64,
+        height: 64,
+        faces: vec![0; 64 * 64],
+        edges: vec![0; 64 * 64],
+        face_refs: BTreeMap::new(),
+        edge_refs: BTreeMap::from([
+            (1, "left".into()),
+            (2, "occluded".into()),
+            (3, "right".into()),
+        ]),
+        candidates: BTreeMap::new(),
+        truncated: BTreeSet::new(),
+    };
+    for y in 12..53 {
+        frame.edges[y * 64 + 20] = 1;
+        frame.edges[y * 64 + 44] = 3;
+    }
+    assert!(frame.pick_edge_near([29., 32.], [6., 6.]).unwrap()["reference"].is_null());
+    assert_eq!(
+        frame.pick_edge_near([29., 32.], [14., 14.]).unwrap()["reference"],
+        "left"
+    );
+    assert_eq!(
+        frame.pick_edge_near([39., 32.], [14., 14.]).unwrap()["reference"],
+        "right"
+    );
+    let junction = frame.pick_edge_near([32.5, 32.], [14., 14.]).unwrap();
+    assert_eq!(junction["ambiguous"], true);
+    assert!(junction["reference"].is_null());
+    for y in [0., 16., 32., 63.] {
+        let p = frame.pick_edge_near([63., y], [14., 14.]).unwrap();
+        assert_ne!(p["reference"], "occluded");
+    }
+    assert!(frame.pick_edge_near([f64::NAN, 0.], [14., 14.]).is_err());
+}

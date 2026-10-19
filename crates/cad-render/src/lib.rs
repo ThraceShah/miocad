@@ -31,6 +31,12 @@ impl Default for Camera {
     }
 }
 impl Camera {
+    /// Grab-style turntable: visible front surfaces follow the finger, independent of DPI.
+    pub fn orbit(&mut self, delta: [f64; 2], viewport: [f64; 2]) {
+        let gain = std::f64::consts::PI / viewport[0].min(viewport[1]).max(128.);
+        self.yaw = (self.yaw + delta[0] * gain).rem_euclid(std::f64::consts::TAU);
+        self.pitch = (self.pitch + delta[1] * gain).clamp(-1.4, 1.4);
+    }
     pub fn projected_axis(self, axis: [f64; 3]) -> [f64; 2] {
         let p = self.transform(axis);
         [p[0], -p[1]]
@@ -113,7 +119,7 @@ impl Frame {
             }
             let color = if selected.is_some_and(|s| self.edge_refs.get(id).is_some_and(|r| r == s))
             {
-                [13, 183, 166]
+                [255, 189, 64]
             } else {
                 [52, 72, 89]
             };
@@ -152,6 +158,68 @@ impl Frame {
             Ok(Value::Object(files))
         };
         save().map_err(|e| format!("io_error: {e}"))
+    }
+    /// Screen-space hit slop over visible IDs only. Tied nearest edges stay ambiguous.
+    pub fn pick_edge_near(&self, point: [f64; 2], radius: [f64; 2]) -> Result<Value, String> {
+        self.validate()?;
+        if point.iter().any(|v| !v.is_finite())
+            || radius
+                .iter()
+                .any(|v| !v.is_finite() || *v <= 0. || *v > 64.)
+        {
+            return Err("invalid_params: pick point/radius".into());
+        }
+        let [x, y] = point;
+        let [rx, ry] = radius;
+        let mut distances: BTreeMap<u32, f64> = BTreeMap::new();
+        let mut truncated = false;
+        for py in
+            (y - ry).floor().max(0.) as u32..=((y + ry).ceil().max(0.) as u32).min(self.height - 1)
+        {
+            for px in (x - rx).floor().max(0.) as u32
+                ..=((x + rx).ceil().max(0.) as u32).min(self.width - 1)
+            {
+                let d = ((px as f64 + 0.5 - x) / rx).powi(2) + ((py as f64 + 0.5 - y) / ry).powi(2);
+                if d > 1. {
+                    continue;
+                }
+                let index = (py * self.width + px) as usize;
+                let id = self.edges[index];
+                let ids: Vec<u32> = if id == AMBIGUOUS {
+                    self.candidates.get(&index).cloned().unwrap_or_default()
+                } else if id != 0 {
+                    vec![id]
+                } else {
+                    Vec::new()
+                };
+                if self.truncated.contains(&index) {
+                    truncated = true;
+                }
+                for id in ids {
+                    distances
+                        .entry(id)
+                        .and_modify(|old| *old = old.min(d))
+                        .or_insert(d);
+                }
+            }
+        }
+        let mut hits: Vec<_> = distances.into_iter().collect();
+        hits.sort_by(|a, b| a.1.total_cmp(&b.1));
+        // At a junction do not silently choose whichever edge happened to rasterize first.
+        let ambiguous = hits.len() > 1 && (hits[1].1.sqrt() - hits[0].1.sqrt()) * rx.min(ry) < 1.;
+        let reference = if ambiguous || truncated {
+            None
+        } else {
+            hits.first().and_then(|(id, _)| self.edge_refs.get(id))
+        };
+        let candidates: Vec<_> = hits
+            .iter()
+            .take(8)
+            .filter_map(|(id, _)| self.edge_refs.get(id))
+            .collect();
+        Ok(
+            json!({"reference":reference,"ambiguous":ambiguous || truncated,"candidates":candidates,"candidates_truncated":truncated || hits.len()>8}),
+        )
     }
     pub fn pick(&self, x: u32, y: u32, target: &str) -> Result<Value, String> {
         self.validate()?;
@@ -579,3 +647,6 @@ impl Frame {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod interaction_tests;

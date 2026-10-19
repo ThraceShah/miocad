@@ -8,6 +8,7 @@ use wgpu::util::DeviceExt;
 struct Geometry {
     scene: Arc<Scene>,
     selected: Option<String>,
+    hovered: Option<String>,
     vertices: wgpu::Buffer,
     faces: u32,
     edges: u32,
@@ -28,7 +29,7 @@ pub fn install(state: &RenderState) {
     });
     let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("CAD camera"),
-        contents: &[0; 48],
+        contents: &[0; 64],
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -70,9 +71,9 @@ pub fn install(state: &RenderState) {
                 entry_point: Some(if edges { "vs_edge" } else { "vs" }),
                 compilation_options: Default::default(),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 24,
+                    array_stride: 44,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3],
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x3,3=>Float32x2],
                 }],
             },
             fragment: Some(wgpu::FragmentState {
@@ -86,11 +87,7 @@ pub fn install(state: &RenderState) {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
-                topology: if edges {
-                    wgpu::PrimitiveTopology::LineList
-                } else {
-                    wgpu::PrimitiveTopology::TriangleList
-                },
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -118,6 +115,8 @@ pub struct View {
     pub scene: Arc<Scene>,
     pub camera: Camera,
     pub selected: Option<String>,
+    pub hovered: Option<String>,
+    pub display_size: [f32; 2],
     pub size: [u32; 2],
 }
 impl View {
@@ -148,20 +147,18 @@ fn bounds(scene: &Scene) -> Option<([f64; 3], f64)> {
         .fold(0f64, f64::max);
     (radius.is_finite() && radius > 0.).then_some((center, radius))
 }
-fn vertices(scene: &Scene, selected: Option<&str>) -> (Vec<[f32; 6]>, u32) {
+fn vertices(scene: &Scene, selected: Option<&str>, hovered: Option<&str>) -> (Vec<[f32; 11]>, u32) {
     let Some((center, radius)) = bounds(scene) else {
         return (Vec::new(), 0);
     };
     let mesh = scene.mesh.as_ref().unwrap();
     let mut out = Vec::new();
-    let vertex = |p: [f64; 3], color: [f32; 3]| {
+    let normalized =
+        |p: [f64; 3]| std::array::from_fn::<_, 3, _>(|i| ((p[i] - center[i]) / radius) as f32);
+    let vertex = |p: [f32; 3], color: [f32; 3], other: [f32; 3], corner: [f32; 2]| {
         [
-            ((p[0] - center[0]) / radius) as f32,
-            ((p[1] - center[1]) / radius) as f32,
-            ((p[2] - center[2]) / radius) as f32,
-            color[0],
-            color[1],
-            color[2],
+            p[0], p[1], p[2], color[0], color[1], color[2], other[0], other[1], other[2],
+            corner[0], corner[1],
         ]
     };
     for t in &mesh.triangles {
@@ -183,18 +180,31 @@ fn vertices(scene: &Scene, selected: Option<&str>) -> (Vec<[f32; 6]>, u32) {
         let light =
             (0.35 + 0.65 * ((n[0] * 0.35 + n[1] * 0.25 + n[2] * 0.9028) / length).abs()) as f32;
         let color = [112., 169., 212.].map(|c| c * light / 255.);
-        out.extend([a, b, c].map(|p| vertex(p, color)));
+        out.extend([a, b, c].map(|p| vertex(normalized(p), color, [0.; 3], [0.; 2])));
     }
     let faces = out.len() as u32;
     for edge in &scene.edges {
-        let color = if selected == Some(edge.reference.as_str()) {
-            [13., 183., 166.]
+        let (color, half_width) = if selected == Some(edge.reference.as_str()) {
+            ([255., 189., 64.], 2.5)
+        } else if hovered == Some(edge.reference.as_str()) {
+            ([44., 230., 210.], 1.8)
         } else {
-            [52., 72., 89.]
-        }
-        .map(|v| v / 255.);
+            ([52., 72., 89.], 0.65)
+        };
+        let color = color.map(|v| v / 255.);
         for pair in edge.points.windows(2) {
-            out.extend(pair.iter().map(|p| vertex(p.map(|v| v.get()), color)));
+            let a = normalized(pair[0].map(|v| v.get()));
+            let b = normalized(pair[1].map(|v| v.get()));
+            for corner in [
+                [0., -half_width],
+                [0., half_width],
+                [1., half_width],
+                [0., -half_width],
+                [1., half_width],
+                [1., -half_width],
+            ] {
+                out.push(vertex(a, color, b, corner));
+            }
         }
     }
     (out, faces)
@@ -230,15 +240,19 @@ impl CallbackTrait for View {
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let resources = resources.get_mut::<Resources>().unwrap();
-        if resources
-            .geometry
-            .as_ref()
-            .is_none_or(|g| !Arc::ptr_eq(&g.scene, &self.scene) || g.selected != self.selected)
-        {
-            let (vertices, faces) = vertices(&self.scene, self.selected.as_deref());
+        if resources.geometry.as_ref().is_none_or(|g| {
+            !Arc::ptr_eq(&g.scene, &self.scene)
+                || g.selected != self.selected
+                || g.hovered != self.hovered
+        }) {
+            let (vertices, faces) = vertices(
+                &self.scene,
+                self.selected.as_deref(),
+                self.hovered.as_deref(),
+            );
             let count = vertices.len() as u32;
             let bytes: &[u8] = if vertices.is_empty() {
-                &[0; 24]
+                &[0; 44]
             } else {
                 bytemuck::cast_slice(&vertices)
             };
@@ -252,16 +266,15 @@ impl CallbackTrait for View {
             resources.geometry = Some(Geometry {
                 scene: self.scene.clone(),
                 selected: self.selected.clone(),
+                hovered: self.hovered.clone(),
                 vertices: buffer,
                 faces,
                 edges: count - faces,
             });
         }
-        queue.write_buffer(
-            &resources.uniform,
-            0,
-            bytemuck::cast_slice(&camera_uniform(self.camera, self.size)),
-        );
+        let mut uniform = camera_uniform(self.camera, self.size).to_vec();
+        uniform.extend([self.display_size[0], self.display_size[1], 0., 0.]);
+        queue.write_buffer(&resources.uniform, 0, bytemuck::cast_slice(&uniform));
         Vec::new()
     }
     fn paint(

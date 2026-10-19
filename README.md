@@ -138,3 +138,7 @@ CAD daemon 自身重启仍丢失内存文档。Web 通过客户端 wgpu 渲染�
 P7 新增 `render.frames` / `render.capture`，可取得界面所用的同一服务帧；`render.snapshot` 支持相机、revision 与 backend=auto/gpu/cpu。
 headless wgpu 的 depth/Face ID/Edge ID 与 CPU fallback 已实际验证，渲染入口升级保留已有文档。
 接口、数值边界和性能说明见 [P7 共享视口](docs/viewport-p7.md)。
+
+
+触屏交互采用随手指方向旋转；边拾取支持触屏容差、青色悬停和琥珀色加粗选中。
+`CAD_ENABLE_WEB_TESTS=ON` 时，`web_touch_and_picking` 在独立临时服务中回归触摸方向、九条可见边、旋转后的拾取、高亮像素及延迟帧。详细命令和边界见 [视口验证](docs/viewport-p7.md)。
