@@ -3,6 +3,33 @@ window.cadBase = base.pathname;
 window.cadView = crypto.randomUUID().replaceAll('-','');
 const api = (name, body = {}) => fetch(new URL(`api/${name}`, base), {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CAD-Web':'1','X-CAD-View':window.cadView},body:JSON.stringify(body)});
 const error = document.querySelector('#error');
+// eframe 0.33 clears its hidden text agent after insertion. Mobile keyboards
+// delete via beforeinput (often with keyCode 229), which eframe doesn't forward.
+// Keep editing in egui, where the actual text, selection and undo state live.
+const isTextAgent = target => target instanceof HTMLInputElement
+  && target.type === 'text' && target.getAttribute('autocapitalize') === 'off'
+  && target === document.activeElement;
+document.addEventListener('keydown', event => {
+  if (isTextAgent(event.target) && !event.isComposing && event.keyCode !== 229
+      && (event.key === 'Delete' || event.key === 'Backspace')) {
+    // egui already consumes this key. Cancel native editing so a physical
+    // Delete cannot also produce beforeinput and delete a second character.
+    event.preventDefault();
+  }
+}, true);
+document.addEventListener('beforeinput', event => {
+  if (!isTextAgent(event.target) || event.isComposing || !event.cancelable) return;
+  const backward = event.inputType === 'deleteContentBackward' || event.inputType === 'deleteWordBackward';
+  const forward = event.inputType === 'deleteContentForward' || event.inputType === 'deleteWordForward';
+  if (!backward && !forward) return;
+  event.preventDefault();
+  const word = event.inputType.startsWith('deleteWord');
+  const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  const init = {key: backward ? 'Backspace' : 'Delete', bubbles:true, cancelable:true,
+    ctrlKey:word && !mac, altKey:word && mac};
+  event.target.dispatchEvent(new KeyboardEvent('keydown', init));
+  event.target.dispatchEvent(new KeyboardEvent('keyup', init));
+}, true);
 async function open() {
   document.querySelector('#loading').style.display='grid';
   try {

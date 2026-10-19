@@ -1563,6 +1563,7 @@ impl Workspace {
         self.geometry.connected = self.model.connected;
         self.geometry.uncertain = self.model.unknown.is_some();
         self.geometry.agent_open = self.chat.open;
+        self.geometry.agent_draft = self.chat.draft.clone();
         self.geometry.references = self.chat.references.clone();
         self.geometry.agent_thinking = self.chat.thinking;
         self.geometry.agent_messages = self.chat.messages.iter().map(|m| m.text.clone()).collect();

@@ -71,3 +71,22 @@ CAD_PLAYWRIGHT=/path/to/playwright CAD_AGENT_LIVE=1 node tests/web_agent.cjs
 旧 C++ 协议端点最多保留128个客户端高水位。Rust service / render relay 在旧表满时，通过既有保留内核通道复用新的逻辑客户端，逻辑 client/request ID、写前预约、高水位、结果与 request.status 由运行目录下的 client-ledger 保持；过期结果只返回 outcome_unavailable，不重新执行。正常客户端继续走原通道。此兼容层可更新现有已注册渲染通道的 relay，保留旧文档拥有者、原 worker、文档及 Undo/Redo，不要求重启内存文档。
 
 内联响应恢复逻辑客户端和请求 ID；旧拥有者汇总事件中的来源 client 目前仍可能显示保留通道，事件 ID、文档和 revision 不变。任务归属和撤销不依据该来源字段，而依据任务日志和文档版本。此为旧端点的兼容边界，不是通用 Persistent Naming 实现。
+
+## Web 软键盘删除回归（2026-10-19）
+
+根因：eframe 0.33.3 的隐藏 text agent 每次输入后清空 DOM input，只把非空 `input.value` 转发为 egui Text；触屏键盘可能仅发出 `beforeinput(deleteContentBackward)`，或先发 `keyCode=229 / Unidentified`，没有可用的 Backspace。结果是在 egui 中能追加文字，却无法删除。
+
+项目自己的 `web/boot.js` 为隐藏 text agent 转发可取消、非组合状态下的字符/词向前向后删除，以成对按键交给 egui 处理真实缓冲区、光标、选区和撤销。实体键盘删除取消 DOM 默认动作，防止同一动作被 `keydown` 与 `beforeinput` 重复执行。组合状态下交回 IME；登录和附件等普通 DOM input 不受影响；没有修改第三方代码。页面已有只读 UI 几何探针增加 `agent_draft`，用于验证实际缓冲区；不发送聊天或触发建模。
+
+固化测试：`tests/text_edit.cjs` 集成 `tests/web_agent.cjs`，且单独注册 CTest `web_text_editing`。覆盖实体退格/Delete、软键盘字符/词删除、229 键码、全选删除与替换、空缓冲区、中文组合提交/删除、组合态删除隔离、emoji 删除。`CAD_TEXT_ONLY=1` 只验证编辑，不调用 Agent。完整 Agent 接入测试也会先执行这些输入回归；所有建模均在独立临时服务中。
+
+验证命令（需预构建 Web，`CAD_PLAYWRIGHT` 指向本机 Playwright）：
+
+```sh
+CAD_BIN=target/release CAD_TEXT_ONLY=1 node tests/web_agent.cjs
+CAD_BIN=target/release node tests/web_agent.cjs
+```
+
+自动化使用 Chromium 的实际 WASM/egui 工作区，并模拟软键盘事件，不宣称已连接真实 iPad/Android 输入法。浏览器不可取消的编辑事件和各输入法特有的纠错替换仍需真实设备兼容性反馈。
+
+本次结果：修改前在真实 WASM 工作区稳定复现软键盘删除未被处理；修改后独立 CTest 2/2（含 Rust 构建 fixture）、完整确定性 Agent 接入流程、共享 UI 的12项 Rust 测试全部通过。已发布到现有 Tailscale 地址并在768×1024触控/WebGPU工作区重复输入测试；HTTPS资源、免凭证访问、刷新及嵌套路由通过。发布前后共享服务快照（含所有文档、revision、游标）完全一致，原文档拥有进程 PID 保持673288。部署证据存于忽略目录 `artifacts/text-edit-deployment/`。
