@@ -57,7 +57,9 @@ async fn http(path: &str, body: Value) -> Result<gloo_net::http::Response, Failu
         Ok(response)
     }
     .fuse();
-    let deadline = gloo_timers::future::TimeoutFuture::new(20_000).fuse();
+    let deadline =
+        gloo_timers::future::TimeoutFuture::new(if path == "agent" { 195_000 } else { 20_000 })
+            .fuse();
     futures_util::pin_mut!(work, deadline);
     futures_util::select! {reply=work=>reply,_=deadline=>Err(failure("Request timed out. Reconnect; nothing will be replayed."))}
 }
@@ -389,8 +391,68 @@ impl eframe::App for Browser {
             }
             self.workspace.apply(event, ctx);
         }
+        if self.workspace.chat.open {
+            ctx.request_repaint_after(Duration::from_millis(350));
+            let window = web_sys::window().unwrap();
+            if let Ok(value) = js_sys::Reflect::get(&window, &"cadPendingAttachments".into()) {
+                if let Some(json) = value.as_string() {
+                    let _ = js_sys::Reflect::set(
+                        &window,
+                        &"cadPendingAttachments".into(),
+                        &JsValue::NULL,
+                    );
+                    match serde_json::from_str(&json) {
+                        Ok(files) => self.workspace.apply(Event::Attachments(files), ctx),
+                        Err(_) => self
+                            .workspace
+                            .apply(Event::AttachmentError("Invalid file selection".into()), ctx),
+                    }
+                }
+            }
+            if let Ok(value) = js_sys::Reflect::get(&window, &"cadAttachmentError".into()) {
+                if let Some(error) = value.as_string() {
+                    let _ =
+                        js_sys::Reflect::set(&window, &"cadAttachmentError".into(), &JsValue::NULL);
+                    self.workspace.apply(Event::AttachmentError(error), ctx);
+                }
+            }
+        }
         for action in self.workspace.show(ctx) {
-            let _ = self.actions.unbounded_send(action);
+            match action {
+                Action::AskAgent { id, turn, .. } => {
+                    let output = self.events.clone();
+                    let repaint = ctx.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let result =
+                            match json_http("agent", serde_json::to_value(turn).unwrap()).await {
+                                Ok(value) if value["ok"] == true => {
+                                    serde_json::from_value(value["reply"].clone())
+                                        .map_err(|_| "Invalid Agent response".into())
+                                }
+                                Ok(value) => Err(value["error"]
+                                    .as_str()
+                                    .unwrap_or("Agent unavailable")
+                                    .into()),
+                                Err(error) => Err(error.message),
+                            };
+                        output
+                            .borrow_mut()
+                            .push_back(Event::AgentReply { id, result });
+                        repaint.request_repaint();
+                    });
+                }
+                Action::ChooseAttachments => {
+                    if let Ok(f) =
+                        js_sys::Reflect::get(&web_sys::window().unwrap(), &"cadChooseFiles".into())
+                            .and_then(|v| v.dyn_into::<js_sys::Function>())
+                    {
+                        let _ = f.call0(&JsValue::NULL);
+                    }
+                }
+                _ => {
+                    let _ = self.actions.unbounded_send(action);
+                }
+            }
         }
         if let Ok(value) = serde_json::to_string(&self.workspace.geometry) {
             UI_GEOMETRY.with(|v| *v.borrow_mut() = value);

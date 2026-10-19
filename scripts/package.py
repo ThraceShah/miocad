@@ -30,7 +30,7 @@ def main():
     shutil.copy2(ROOT/'build/cad-server',output/'bin/cad-server')
     shutil.copytree(ROOT/'artifacts/web',output/'web',dirs_exist_ok=True)
     share=output/'share/ai-cad';share.mkdir(parents=True,exist_ok=True)
-    for source in ['Cargo.lock','THIRD_PARTY.md','README.md','docs/migration-p4.md','docs/desktop-p5.md','docs/web-p6.md','docs/viewport-p7.md','docs/tablet-ui.md','modules/cad-skills/GUIDE.md']:
+    for source in ['Cargo.lock','THIRD_PARTY.md','README.md','docs/migration-p4.md','docs/desktop-p5.md','docs/web-p6.md','docs/viewport-p7.md','docs/tablet-ui.md','docs/agent-workspace.md','modules/cad-skills/GUIDE.md']:
         shutil.copy2(ROOT/source,share/Path(source).name)
     notices=share/'licenses';notices.mkdir(exist_ok=True)
     for source in [ROOT/'third_party/usd-brep',ROOT/'third_party/json']:

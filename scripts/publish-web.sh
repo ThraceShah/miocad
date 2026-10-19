@@ -99,6 +99,10 @@ if [[ ! -f "$web_release/.complete" ]]; then
     touch "$web_release/.complete"
 fi
 web_port="${CAD_WEB_PORT:-19060}"
+# Thin local adapter; provider credentials remain in the installed Agent's own store.
+agent_pi="${CAD_AGENT_PI:-$(command -v pi || true)}"
+agent_backend="${CAD_AGENT_BACKEND:-disabled}"
+if [[ -n "$agent_pi" && -z "${CAD_AGENT_BACKEND:-}" ]]; then agent_backend=pi; fi
 cat > "$HOME/.config/systemd/user/miocad-web.service" <<UNIT
 [Unit]
 Description=AI-CAD egui Web gateway
@@ -113,6 +117,8 @@ Environment=CAD_WEB_REQUIRE_RELAY=1
 Environment=CAD_WEB_STRIP_PREFIX=1
 # Trusted Tailscale deployment: keep browser scoping, omit the manual access code.
 Environment=CAD_WEB_TRUSTED_ACCESS=1
+Environment=CAD_AGENT_BACKEND=$agent_backend
+Environment=CAD_AGENT_PI="$agent_pi"
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=yes

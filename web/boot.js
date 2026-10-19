@@ -38,3 +38,18 @@ try {
   error.textContent=`Connection failed: ${e.message}. Refresh to retry.`;
   document.querySelector('#login').style.display='grid';
 } finally {document.querySelector('#loading').style.display='none';}
+
+// User-selected files only; bytes stay in page memory until a turn is sent.
+window.cadChooseFiles=()=>{
+  const picker=document.createElement('input');picker.type='file';picker.multiple=true;picker.accept='.txt,.md,.json,.csv,.rs,.cpp,.h,.png,.jpg,.jpeg';picker.id='cad-file-picker';picker.hidden=true;document.body.appendChild(picker);
+  picker.addEventListener('change',async()=>{
+    try {
+      const files=[...picker.files];if(files.length>8)throw new Error('Maximum 8 attachments');
+      if(files.some(f=>f.size>2250000)||files.reduce((n,f)=>n+f.size,0)>4000000)throw new Error('Attachments exceed size limit (4 MB total)');
+      const result=await Promise.all(files.map(async f=>{
+        const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(f);});
+        return {name:f.name,mime:f.type==='image/png'||f.type==='image/jpeg'?f.type:'text/plain',data};
+      }));window.cadPendingAttachments=JSON.stringify(result);
+    }catch(e){window.cadAttachmentError=String(e.message||e);}finally{picker.remove();}
+  },{once:true});picker.addEventListener('cancel',()=>picker.remove(),{once:true});picker.click();
+};

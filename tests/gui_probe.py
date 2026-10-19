@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 BIN=Path(os.environ.get('CAD_BIN',ROOT/'target/debug')).resolve()
 OUT=ROOT/'artifacts/p7-gui';OUT.mkdir(parents=True,exist_ok=True)
 (OUT/'gui.log').write_text('')
+(OUT/'ui.json').write_text(json.dumps({'connected':False,'controls':{}}))
 runtime=Path(tempfile.mkdtemp(prefix='miocad-p5-window-'))
 log=(OUT/'xvfb.log').open('w')
 xvfb=subprocess.Popen(['/usr/bin/Xvfb','-displayfd','1','-screen','0','1280x820x24','-nolisten','tcp','+extension','GLX'],stdout=subprocess.PIPE,stderr=log,text=True)
@@ -75,6 +76,11 @@ try:
      motion(round(cmd['from'][0]+(cmd['to'][0]-cmd['from'][0])*i/15),round(cmd['from'][1]+(cmd['to'][1]-cmd['from'][1])*i/15));time.sleep(.02)
     xt.XTestFakeButtonEvent(xd,cmd.get('button',1),0,0);xl.XFlush(xd);result='dragged'
    elif op=='shot':result=shot(cmd['name'])
+   elif op=='focus':
+    output=subprocess.check_output(['/usr/bin/xwininfo','-root','-tree'],env=env,text=True)
+    window=next(int(line.strip().split()[0],16) for line in output.splitlines() if 'AI-CAD' in line)
+    xl.XSetInputFocus.argtypes=[C.c_void_p,C.c_ulong,C.c_int,C.c_ulong]
+    xl.XSetInputFocus(xd,window,1,0);xl.XFlush(xd);time.sleep(.1);result='focused'
    elif op=='key':key(cmd['sym']);result='keyed'
    elif op=='stop-gui':close_window();result='closed'
    elif op=='start-gui':result=start()

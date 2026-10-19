@@ -8,6 +8,7 @@ use wgpu::util::DeviceExt;
 struct Geometry {
     scene: Arc<Scene>,
     selected: Option<String>,
+    referenced: Vec<String>,
     hovered: Option<String>,
     vertices: wgpu::Buffer,
     faces: u32,
@@ -115,6 +116,7 @@ pub struct View {
     pub scene: Arc<Scene>,
     pub camera: Camera,
     pub selected: Option<String>,
+    pub referenced: Vec<String>,
     pub hovered: Option<String>,
     pub display_size: [f32; 2],
     pub size: [u32; 2],
@@ -147,7 +149,12 @@ fn bounds(scene: &Scene) -> Option<([f64; 3], f64)> {
         .fold(0f64, f64::max);
     (radius.is_finite() && radius > 0.).then_some((center, radius))
 }
-fn vertices(scene: &Scene, selected: Option<&str>, hovered: Option<&str>) -> (Vec<[f32; 11]>, u32) {
+fn vertices(
+    scene: &Scene,
+    selected: Option<&str>,
+    hovered: Option<&str>,
+    referenced: &[String],
+) -> (Vec<[f32; 11]>, u32) {
     let Some((center, radius)) = bounds(scene) else {
         return (Vec::new(), 0);
     };
@@ -179,13 +186,20 @@ fn vertices(scene: &Scene, selected: Option<&str>, hovered: Option<&str>) -> (Ve
         }
         let light =
             (0.35 + 0.65 * ((n[0] * 0.35 + n[1] * 0.25 + n[2] * 0.9028) / length).abs()) as f32;
-        let color = [112., 169., 212.].map(|c| c * light / 255.);
+        let color = if referenced.iter().any(|r| r == "body" || r == &t.face) {
+            [219., 155., 74.]
+        } else {
+            [112., 169., 212.]
+        }
+        .map(|c| c * light / 255.);
         out.extend([a, b, c].map(|p| vertex(normalized(p), color, [0.; 3], [0.; 2])));
     }
     let faces = out.len() as u32;
     for edge in &scene.edges {
         let (color, half_width) = if selected == Some(edge.reference.as_str()) {
             ([255., 189., 64.], 2.5)
+        } else if referenced.contains(&edge.reference) {
+            ([216., 118., 255.], 2.8)
         } else if hovered == Some(edge.reference.as_str()) {
             ([44., 230., 210.], 1.8)
         } else {
@@ -244,11 +258,13 @@ impl CallbackTrait for View {
             !Arc::ptr_eq(&g.scene, &self.scene)
                 || g.selected != self.selected
                 || g.hovered != self.hovered
+                || g.referenced != self.referenced
         }) {
             let (vertices, faces) = vertices(
                 &self.scene,
                 self.selected.as_deref(),
                 self.hovered.as_deref(),
+                &self.referenced,
             );
             let count = vertices.len() as u32;
             let bytes: &[u8] = if vertices.is_empty() {
@@ -266,6 +282,7 @@ impl CallbackTrait for View {
             resources.geometry = Some(Geometry {
                 scene: self.scene.clone(),
                 selected: self.selected.clone(),
+                referenced: self.referenced.clone(),
                 hovered: self.hovered.clone(),
                 vertices: buffer,
                 faces,

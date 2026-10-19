@@ -56,6 +56,7 @@ pub struct Gateway {
     stripped_prefix: bool,
     trusted_access: bool,
     access: Mutex<Access>,
+    agent_slots: tokio::sync::Semaphore,
 }
 fn same_secret(a: &str, b: &str) -> bool {
     let mut difference = a.len() ^ b.len();
@@ -81,6 +82,7 @@ impl Gateway {
             origin,
             base,
             code,
+            agent_slots: tokio::sync::Semaphore::new(2),
             access: Mutex::new(Access {
                 grants: HashMap::new(),
                 attempts: 0,
@@ -289,6 +291,29 @@ fn scoped_request(value: Value, grant: &Grant) -> Result<Value, Error> {
         _ => Err(FORBIDDEN),
     }
 }
+
+async fn agent_turn(
+    State(g): State<Arc<Gateway>>,
+    headers: HeaderMap,
+    Json(turn): Json<cad_agent::Turn>,
+) -> Result<Json<Value>, Error> {
+    let grant = g.grant(&headers).await?;
+    if grant.context.service_id.as_ref().map(|s| s.as_str()) != Some(&g.endpoint.service_id) {
+        return Err(UNAVAILABLE);
+    }
+    let _permit = g.agent_slots.try_acquire().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Agent is busy; try again after the current turn",
+        )
+    })?;
+    let result = cad_agent::host::ask(g.endpoint.clone(), &g.session, turn).await;
+    Ok(Json(match result {
+        Ok(reply) => json!({"ok":true,"reply":reply}),
+        Err(error) => json!({"ok":false,"error":error}),
+    }))
+}
+
 async fn rpc(
     State(g): State<Arc<Gateway>>,
     headers: HeaderMap,
@@ -465,6 +490,10 @@ pub fn router(gateway: Gateway, assets: PathBuf) -> Router {
         .route("/api/logout", post(logout))
         .route("/api/hello", post(hello))
         .route("/api/rpc", post(rpc))
+        .route(
+            "/api/agent",
+            post(agent_turn).layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
+        )
         .route("/api/snapshot", post(snapshot))
         .route("/api/view", post(view))
         .route("/api/events", post(events))

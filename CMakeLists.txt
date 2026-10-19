@@ -67,6 +67,10 @@ if(CAD_ENABLE_RUST_TESTS AND BUILD_TESTING)
     find_program(CAD_XVFB NAMES Xvfb REQUIRED)
     find_program(CAD_FFMPEG NAMES ffmpeg REQUIRED)
     find_program(CAD_XWININFO NAMES xwininfo REQUIRED)
+    add_test(NAME desktop_agent_references COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/gui_agent.py)
+    set_tests_properties(desktop_agent_references PROPERTIES FIXTURES_REQUIRED rust_products
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" ENVIRONMENT "CAD_BIN=${PROJECT_SOURCE_DIR}/target/debug;CAD_SERVER=$<TARGET_FILE:cad-server>"
+      TIMEOUT 120 RUN_SERIAL TRUE)
     add_test(NAME desktop_workspace COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/gui_smoke.py)
     set_tests_properties(desktop_workspace PROPERTIES FIXTURES_REQUIRED rust_products
       WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" ENVIRONMENT "CAD_BIN=${PROJECT_SOURCE_DIR}/target/debug;CAD_SERVER=$<TARGET_FILE:cad-server>"
@@ -80,6 +84,10 @@ install(TARGETS cad-server RUNTIME DESTINATION bin)
 option(CAD_ENABLE_WEB_TESTS "Run actual Chromium/WASM acceptance (requires prebuilt Web assets and Playwright)" OFF)
 if(CAD_ENABLE_WEB_TESTS AND CAD_ENABLE_RUST_TESTS AND BUILD_TESTING)
   find_program(CAD_NODE NAMES node REQUIRED)
+  add_test(NAME web_agent_references COMMAND "${CAD_NODE}" "${PROJECT_SOURCE_DIR}/tests/web_agent.cjs")
+  set_tests_properties(web_agent_references PROPERTIES FIXTURES_REQUIRED rust_products
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" ENVIRONMENT "CAD_BIN=${PROJECT_SOURCE_DIR}/target/debug"
+    TIMEOUT 180 RUN_SERIAL TRUE)
   add_test(NAME web_tablet_workspace COMMAND "${CAD_NODE}" "${PROJECT_SOURCE_DIR}/tests/web_tablet.cjs")
   set_tests_properties(web_tablet_workspace PROPERTIES FIXTURES_REQUIRED rust_products
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" ENVIRONMENT "CAD_BIN=${PROJECT_SOURCE_DIR}/target/debug;CAD_TEST_DPR=2"

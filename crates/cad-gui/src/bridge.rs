@@ -11,6 +11,8 @@ pub struct Bridge {
     pub events: mpsc::Receiver<Event>,
     commands: asynchronous::Sender<Action>,
     views: mpsc::Sender<ViewRequest>,
+    host_config: Config,
+    host_output: Output,
 }
 impl Bridge {
     pub fn start(config: Config, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
@@ -18,6 +20,8 @@ impl Bridge {
         let (sender, events) = mpsc::sync_channel(32);
         let (views, render_rx) = mpsc::channel::<ViewRequest>();
         let output = Output { sender, wake };
+        let host_config = config.clone();
+        let host_output = output.clone();
         let renders = output.clone();
         let render_config = config.clone();
         std::thread::spawn(move || {
@@ -127,10 +131,73 @@ impl Bridge {
             events,
             commands,
             views,
+            host_config,
+            host_output,
         }
     }
     pub fn send(&self, action: Action) -> Result<(), String> {
-        self.commands.try_send(action).map_err(|e| e.to_string())
+        match action {
+            Action::AskAgent {
+                id,
+                turn,
+                service,
+                session,
+            } => {
+                let config = self.host_config.clone();
+                let output = self.host_output.clone();
+                std::thread::spawn(move || {
+                    let result = (|| -> Result<cad_agent::Reply, String> {
+                        let endpoint: cad_protocol::service::ServiceEndpoint =
+                            serde_json::from_slice(
+                                &std::fs::read(config.options.runtime_dir.join("endpoint.json"))
+                                    .map_err(|_| "CAD service unavailable")?,
+                            )
+                            .map_err(|_| "Invalid CAD endpoint")?;
+                        if endpoint.service_id != service {
+                            return Err("CAD service changed. Reconnect and ask again".into());
+                        }
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|e| e.to_string())?
+                            .block_on(cad_agent::host::ask(endpoint, &session, turn))
+                    })();
+                    output.send(Event::AgentReply { id, result });
+                });
+                Ok(())
+            }
+            Action::ChooseAttachments => {
+                self.host_output.send(Event::AttachmentError("Drag text or image files from your file manager into the CAD window to attach them.".into()));
+                Ok(())
+            }
+            Action::LoadAttachments(paths) => {
+                let mut files = Vec::new();
+                for p in paths.into_iter().take(8) {
+                    let result = (|| -> Result<cad_agent::Attachment, String> {
+                        if std::fs::metadata(&p)
+                            .map_err(|_| "Cannot open attachment")?
+                            .len()
+                            > 2_250_000
+                        {
+                            return Err("Attachment exceeds size limit".into());
+                        }
+                        cad_agent::Attachment::from_bytes(
+                            p.file_name().unwrap_or_default().to_string_lossy().into(),
+                            &std::fs::read(p).map_err(|_| "Cannot read attachment")?,
+                        )
+                    })();
+                    match result {
+                        Ok(a) => files.push(a),
+                        Err(e) => {
+                            self.host_output.send(Event::AttachmentError(e));
+                        }
+                    }
+                }
+                self.host_output.send(Event::Attachments(files));
+                Ok(())
+            }
+            _ => self.commands.try_send(action).map_err(|e| e.to_string()),
+        }
     }
     pub fn render(&self, view: ViewRequest) -> Result<(), String> {
         self.views.send(view).map_err(|e| e.to_string())

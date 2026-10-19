@@ -534,3 +534,20 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 移除树滚动区 42% / 320px 的高度限制。透明叠加面板与视口上下对齐，扣除边框、标题与实体摘要后，剩余高度全部用于内部滚动；不挤占视口宽度。折叠树内容、顶部 Tree 隐藏功能保留。
 
 原布局单元测试新增面板顶端与高度断言（768×1024、820×1180、1280×820）；浏览器平板测试新增竖屏、打开参数栏和横屏后的等高断言。单元测试、Clippy、fmt、语法及 diff 检查通过；CTest `web_tablet_workspace` 含构建 fixture 2/2 通过（23.13秒），双指缩放/平移等原检查继续通过。实际 HTTPS 768×1024 / DPR2 等高及参数面板检查通过，无页面异常、RPC 只有 render.scene；截图位于 `artifacts/full-height-tree/`。生产文档快照前后完全相同，owner PID=673288 未重启，Web/relay active，门户 miocad online=true。没有修改第三方或建模逻辑。
+
+## 2026-10-19：带命名引用的本机 CAD Agent 对话闭环
+
+新增 Rust `cad-agent`，统一 Turn/Reference/Attachment/Reply/Proposal 协议和本机 Pi / json-stdio 薄适配。共享 egui 底部对话面板支持视图 Edge/Face/Body、树 Box/Fillet 操作记录引用、名称 chip、文本/PNG/JPEG附件、关联树/视图高亮；中文字体及 Apache-2.0 声明随产品发布。宿主补充真实场景摘要，校验文档/revision/拓扑/事件，并在推理后和预览前复核；推理只产生建议，预览/Confirm 复用原 Commander 事务链路。完整配置与功能边界见 `docs/agent-workspace.md`。
+
+通过的验证：
+- Rust workspace 45 项通过，包含伪造拓扑、跨文档/旧版本、未知操作和额外参数、附件类型、延迟回复 ID / revision、过期高亮检查；native all-target 和 wasm32 lib Clippy（`-D warnings`）、fmt、JS语法、Python编译及 diff 检查通过。桌面 release 构建成功。
+- CTest 原桌面建模、平板缩放/平移、完整 Web 建模/丢失确认核对、微小倒圆消歧，含构建 fixture 5/5 通过（79.49秒）。
+- 新增并登记 `web_agent_references`，fixture + 测试 2/2 通过（19.43秒）；最终脚本直接运行也通过。真实 Chromium/WASM → Rust Gateway → 确定性进程适配 → 真实 SMLib 预览/确认，核验四类引用、准确边 target、文本/PNG字节、Box建议预览/取消、无效/旧建议拒绝、推理中实际并发修改、跨源拒绝。竖屏768×1024与横屏1280×1000布局通过。截图检测到1370个紫色边像素和102720个金色表面像素，关联颜色确实进入实际 GPU 画面。
+- `CAD_AGENT_LIVE=1` 调用本机已登录 Pi 做真实推理：四类引用及附件 → 指定边1mm倒圆建议 → 内核预览 → Confirm 后 valid=true；推理和预览期间快照不变。WebGL2路径通过，WebGPU路径另验证整条链路，并再次询问1到2mm变半径倒圆：Agent明确说明不支持，proposal=null，revision保持不变。真实推理未替代常规离线回归的确定性样本。
+- 新增 `desktop_agent_references`：隔离 Xvfb 的真实 egui 窗口从树引用边，输入对话，走原生 Bridge/进程适配得到准确建议，预览不提交，确认后revision=2且模型有效，旧引用停止高亮。测试驱动器每次清空上一次探针数据并显式设置X11键盘焦点。
+- 发布后的真实 Tailscale HTTPS / WebGPU / 竖屏页面引用生产文档 Body 1 和 Box 1；本机 Pi正确识别两者、说明当前能力，并按请求返回proposal=null。浏览器只发出render.scene查询，没有建模请求；页面无异常，资源/WASM/health可访问。免码、Cookie、刷新与嵌套路由回归通过。
+- 发布前后生产快照完全相同：两个文档revision=5/4、cursor=11；owner PID=673288未重启，三项持久服务active，门户HTTPS200、miocad online=true。测试建模始终使用独立临时服务，临时窗口/网关已关闭。只在本地Git提交，不推送。
+
+证据：`artifacts/agent-chat/`、`artifacts/agent-chat-live/`、`artifacts/agent-deployment/` 和CTest日志（Git忽略）。真实生产验收仅查询/客户端选择/对话，不修改生产零件。
+
+当前边界：只执行Box替换和单边定半径Fillet。特征引用指向不可变操作记录，视图高亮是当前实体上下文，未声称具备历史特征到生成面的演化映射。尚无变半径倒圆、凸台、抽壳等建模接口；聊天和附件暂不持久化；不解析任意二进制CAD/PDF附件。当前Agent适配通过禁用Pi工具及类型校验约束建议，不是操作系统进程沙箱。所有限制在界面或使用文档中明确。

@@ -13,6 +13,14 @@ use std::sync::Arc;
 pub use widgets::*;
 #[derive(Clone)]
 pub enum Action {
+    AskAgent {
+        id: u64,
+        turn: cad_agent::Turn,
+        service: String,
+        session: String,
+    },
+    ChooseAttachments,
+    LoadAttachments(Vec<std::path::PathBuf>),
     NewDocument {
         ticket: u64,
     },
@@ -44,6 +52,12 @@ pub struct Failure {
     pub request: Option<Box<Request>>,
 }
 pub enum Event {
+    AgentReply {
+        id: u64,
+        result: Result<cad_agent::Reply, String>,
+    },
+    Attachments(Vec<cad_agent::Attachment>),
+    AttachmentError(String),
     History {
         events: Vec<cad_protocol::Event>,
         truncated: bool,

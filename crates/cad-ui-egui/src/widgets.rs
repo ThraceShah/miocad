@@ -1,10 +1,14 @@
 use crate::*;
+#[path = "chat.rs"]
+mod chat;
+use cad_agent::ReferenceKind;
 use egui::{Color32, RichText, Vec2};
 const ACCENT: Color32 = Color32::from_rgb(44, 210, 190);
 const SELECTED: Color32 = Color32::from_rgb(255, 189, 64);
 const MUTED: Color32 = Color32::from_rgb(141, 157, 174);
 const CANVAS: Color32 = Color32::from_rgb(242, 245, 248);
 struct PendingPick {
+    kind: ReferenceKind,
     document: DocumentId,
     revision: u64,
     epoch: u64,
@@ -19,6 +23,7 @@ struct PickChoices {
     references: Vec<String>,
 }
 pub struct Workspace {
+    pub chat: chat::Chat,
     pub model: Model,
     pub browser_downloads: bool,
     pub local_backend: Option<String>,
@@ -49,6 +54,7 @@ pub struct Workspace {
 impl Default for Workspace {
     fn default() -> Self {
         Self {
+            chat: chat::Chat::default(),
             model: Model::default(),
             browser_downloads: false,
             local_backend: None,
@@ -80,6 +86,22 @@ impl Default for Workspace {
 }
 impl Workspace {
     pub fn theme(ctx: &egui::Context) {
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "cad-cjk".into(),
+            egui::FontData::from_static(include_bytes!(
+                "../../../assets/fonts/DroidSansFallbackFull.ttf"
+            ))
+            .into(),
+        );
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts
+                .families
+                .entry(family)
+                .or_default()
+                .push("cad-cjk".into());
+        }
+        ctx.set_fonts(fonts);
         ctx.set_theme(egui::Theme::Dark);
         let mut style = (*ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
@@ -101,6 +123,9 @@ impl Workspace {
     }
     pub fn apply(&mut self, event: Event, ctx: &egui::Context) {
         match event {
+            Event::AgentReply { id, result } => self.agent_reply(id, result),
+            Event::Attachments(files) => self.attach(files),
+            Event::AttachmentError(error) => self.chat.error = Some(error),
             Event::History { events, truncated } => {
                 self.history = events;
                 self.history_truncated = truncated;
@@ -599,14 +624,44 @@ impl Workspace {
             return;
         }
         let pending = self.pending_pick.take().unwrap();
+        if pending.kind != ReferenceKind::Edge {
+            let reference = self
+                .frame
+                .as_ref()
+                .and_then(|f| {
+                    f.pick(
+                        pending.point[0].floor() as u32,
+                        pending.point[1].floor() as u32,
+                        "face",
+                    )
+                    .ok()
+                })
+                .and_then(|v| v["reference"].as_str().map(str::to_owned));
+            if let Some(reference) = reference {
+                self.picked_reference(
+                    pending.kind,
+                    if pending.kind == ReferenceKind::Body {
+                        "body".into()
+                    } else {
+                        reference
+                    },
+                );
+            }
+            return;
+        }
         if let Some(frame) = &self.frame {
             if let Ok(pick) = frame.pick_edge_near(pending.point, pending.radius) {
                 if let Some(reference) = pick["reference"].as_str() {
                     self.model.select_edge(reference.into(), pending.revision);
-                    self.model.mode = Mode::Fillet;
-                    self.inspector_open = true;
+                    if self.chat.open {
+                        self.picked_reference(ReferenceKind::Edge, reference.into());
+                    } else {
+                        self.model.mode = Mode::Fillet;
+                        self.inspector_open = true;
+                    }
                     self.model.notice =
-                        "Edge selected (amber). Preview a fillet or tap another edge.".into();
+                        "Edge selected (amber). Reference it in Agent chat or preview a fillet."
+                            .into();
                 } else if pick["ambiguous"] == true {
                     let references = pick["candidates"]
                         .as_array()
@@ -654,10 +709,14 @@ impl Workspace {
         {
             let revision = self.pick_choices.take().unwrap().revision;
             self.model.select_edge(reference.into(), revision);
-            self.model.mode = Mode::Fillet;
-            self.inspector_open = true;
+            if self.chat.open {
+                self.picked_reference(ReferenceKind::Edge, reference.into());
+            } else {
+                self.model.mode = Mode::Fillet;
+                self.inspector_open = true;
+            }
             self.model.notice =
-                "Edge selected (amber). Preview a fillet or tap another edge.".into();
+                "Edge selected (amber). Reference it in Agent chat or preview a fillet.".into();
         }
     }
     fn edge_choices(&mut self, ctx: &egui::Context) {
@@ -867,6 +926,11 @@ impl Workspace {
                 let slop = if touch { 14. } else { 6. };
                 self.pick_choices = None;
                 self.pending_pick = Some(PendingPick {
+                    kind: if self.chat.open {
+                        self.chat.pick_kind
+                    } else {
+                        ReferenceKind::Edge
+                    },
                     document,
                     revision: self.model.current().map_or(0, |d| d.revision.get()),
                     epoch: self.model.view_epoch,
@@ -925,6 +989,7 @@ impl Workspace {
                     crate::local_view::View {
                         scene: bound.scene.clone(),
                         camera: self.model.camera,
+                        referenced: self.reference_highlights(),
                         selected: self.model.selection.as_ref().map(|s| s.reference.clone()),
                         hovered: self.model.hover.clone(),
                         display_size: [rect.width(), rect.height()],
@@ -1064,6 +1129,7 @@ impl Workspace {
                 let panel = frame.show(ui, |ui| {
                     ui.set_height(inner_height);
                     ui.visuals_mut().override_text_color = Some(Color32::from_rgb(44, 65, 79));
+                    ui.visuals_mut().selection.bg_fill = Color32::from_rgb(180, 231, 215);
                     let response = egui::CollapsingHeader::new("FeatureManager")
                         .id_salt("model-tree")
                         .default_open(true)
@@ -1073,16 +1139,11 @@ impl Workspace {
                             };
                             let id = doc.document.clone();
                             let revision = doc.revision;
-                            ui.label(
-                                RichText::new(format!("Solid body · r{}", revision.get()))
-                                    .strong()
-                                    .color(Color32::from_rgb(44, 65, 79)),
-                            );
-                            ui.label(format!(
-                                "{} faces · {} edges",
-                                doc.data.faces.unwrap_or(0),
-                                doc.data.edges.unwrap_or(0)
-                            ));
+                            let counts=(doc.data.faces.unwrap_or(0),doc.data.edges.unwrap_or(0));
+                            let body=ui.selectable_label(self.reference_highlights().iter().any(|r|r=="body"),format!("Solid body · r{}",revision.get()));
+                            self.geometry.record("tree-body",&body,true);
+                            if body.clicked(){self.chat.open=true;self.picked_reference(ReferenceKind::Body,"body".into());}
+                            ui.label(format!("{} faces · {} edges",counts.0,counts.1));
                             egui::ScrollArea::vertical()
                                 .id_salt("tree-scroll")
                                 .max_height(ui.available_height())
@@ -1094,7 +1155,7 @@ impl Workspace {
                                         .show(ui, |ui| {
                                             let mut boxes = 0;
                                             let mut fillets = 0;
-                                            for e in self.history.iter().filter(|e| {
+                                            for e in self.history.clone().iter().filter(|e| {
                                                 e.document == id
                                                     && e.revision.get() <= revision.get()
                                             }) {
@@ -1111,11 +1172,11 @@ impl Workspace {
                                                     "document.redo" => "Redo".into(),
                                                     _ => continue,
                                                 };
-                                                ui.label(format!(
-                                                    "{label} · r{}",
-                                                    e.revision.get()
-                                                ))
-                                                .on_hover_text("Committed operation record");
+                                                let target=format!("event:{}",e.event_id.get());
+                                                let referenced=self.chat.references.iter().any(|r|self.reference_current(r)&&r.kind==ReferenceKind::Feature&&r.target==target);
+                                                let response=ui.selectable_label(referenced,format!("{label} · r{}",e.revision.get())).on_hover_text("Reference an operation record; viewport highlight shows current body context, not historical generated faces.");
+                                                self.geometry.record(format!("feature-{}",e.event_id.get()),&response,true);
+                                                if response.clicked() && matches!(e.command.as_str(),"model.box"|"model.fillet") {self.chat.open=true;if let Some(r)=self.named_reference(ReferenceKind::Feature,target,label){self.add_reference(r);}}
                                             }
                                             if self.history_truncated {
                                                 ui.small("Earlier records unavailable");
@@ -1134,36 +1195,56 @@ impl Workspace {
                                         .as_ref()
                                         .map(|s| s.edges.as_slice())
                                         .unwrap_or(&[]);
-                                    egui::CollapsingHeader::new(format!("Edges ({})", edges.len()))
-                                        .id_salt("tree-edges")
-                                        .show(ui, |ui| {
-                                            for (i, e) in edges.iter().enumerate() {
-                                                let enabled = self.model.can_edit()
-                                                    && self.model.preview.is_none();
-                                                if ui
-                                                    .add_enabled(
-                                                        enabled,
-                                                        egui::Button::selectable(
-                                                            self.model
-                                                                .selection
-                                                                .as_ref()
-                                                                .is_some_and(|s| {
-                                                                    s.reference == e.reference
-                                                                }),
-                                                            format!("Edge {}", i + 1),
-                                                        ),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    self.model.select_edge(
-                                                        e.reference.clone(),
-                                                        revision.get(),
-                                                    );
+                                    let faces: std::collections::BTreeSet<_> = tree_scene
+                                        .as_ref()
+                                        .and_then(|s| s.mesh.as_ref())
+                                        .into_iter()
+                                        .flat_map(|m| m.triangles.iter().map(|t| t.face.clone()))
+                                        .collect();
+                                    let highlights = self.reference_highlights();
+                                    let face_referenced = faces.iter().any(|r| highlights.contains(r));
+                                    let face_header = egui::CollapsingHeader::new(format!(
+                                        "Faces ({}){}", faces.len(),
+                                        if face_referenced { " · referenced" } else { "" }
+                                    ))
+                                    .id_salt("tree-faces")
+                                    .show(ui, |ui| {
+                                        for (i, reference) in faces.iter().enumerate() {
+                                            let selected = highlights.contains(reference);
+                                            let r = ui.selectable_label(selected, format!("Face {}", i + 1));
+                                            self.geometry.record(format!("tree-face-{i}"), &r, true);
+                                            if r.clicked() {
+                                                self.chat.open = true;
+                                                self.picked_reference(ReferenceKind::Face, reference.clone());
+                                            }
+                                        }
+                                    });
+                                    self.geometry.record("tree-faces-header", &face_header.header_response, true);
+                                    let edge_referenced = edges.iter().any(|e| highlights.contains(&e.reference));
+                                    let edge_header = egui::CollapsingHeader::new(format!(
+                                        "Edges ({}){}", edges.len(),
+                                        if edge_referenced { " · referenced" } else { "" }
+                                    ))
+                                    .id_salt("tree-edges")
+                                    .show(ui, |ui| {
+                                        for (i, e) in edges.iter().enumerate() {
+                                            let enabled = self.model.can_edit() && self.model.preview.is_none();
+                                            let selected = highlights.contains(&e.reference)
+                                                || self.model.selection.as_ref().is_some_and(|s| s.reference == e.reference);
+                                            let r = ui.add_enabled(enabled, egui::Button::selectable(selected, format!("Edge {}", i + 1)));
+                                            self.geometry.record(format!("tree-edge-{i}"), &r, enabled);
+                                            if r.clicked() {
+                                                self.model.select_edge(e.reference.clone(), revision.get());
+                                                if self.chat.open {
+                                                    self.picked_reference(ReferenceKind::Edge, e.reference.clone());
+                                                } else {
                                                     self.model.mode = Mode::Fillet;
                                                     self.inspector_open = true;
                                                 }
                                             }
-                                        });
+                                        }
+                                    });
+                                    self.geometry.record("tree-edges-header", &edge_header.header_response, true);
                                 });
                         });
                     self.geometry
@@ -1294,11 +1375,15 @@ impl Workspace {
                                     self.inspector_open,
                                 ),
                                 (Icon::Tree, "tree", "Tree", self.tree_open),
+                                (Icon::Connect, "chat", "Agent", self.chat.open),
                             ] {
                                 let response = tool(ui, icon, label, active, true);
                                 self.geometry.record(name, &response, true);
                                 if response.clicked() {
-                                    if name == "tree" {
+                                    if name == "chat" {
+                                        self.chat.open = !self.chat.open;
+                                        self.pending_pick = None;
+                                    } else if name == "tree" {
                                         self.tree_open = !self.tree_open;
                                     } else {
                                         self.inspector_open = !self.inspector_open;
@@ -1422,6 +1507,7 @@ impl Workspace {
                     .on_hover_text(text);
                 });
             });
+        self.chat_panel(ctx, &mut actions);
         if self.inspector_open {
             let width = if ctx.content_rect().width() < 900. {
                 242.
@@ -1475,6 +1561,12 @@ impl Workspace {
         self.geometry.frame_current = self.frame_current();
         self.geometry.connected = self.model.connected;
         self.geometry.uncertain = self.model.unknown.is_some();
+        self.geometry.agent_open = self.chat.open;
+        self.geometry.references = self.chat.references.clone();
+        self.geometry.agent_thinking = self.chat.thinking;
+        self.geometry.agent_messages = self.chat.messages.iter().map(|m| m.text.clone()).collect();
+        self.geometry.agent_error = self.chat.error.clone();
+        self.geometry.highlights = self.reference_highlights();
         actions
     }
 }
@@ -1521,6 +1613,7 @@ mod picking_tests {
             .find(|(x, y)| frame.pick(*x, *y, "edge").unwrap()["reference"] == "edge")
             .unwrap();
         w.pending_pick = Some(PendingPick {
+            kind: ReferenceKind::Edge,
             document: doc.clone(),
             revision: 1,
             epoch: w.model.view_epoch,

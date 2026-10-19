@@ -7,6 +7,12 @@ pub struct ControlGeometry {
 }
 #[derive(Default, Clone, serde::Serialize)]
 pub struct UiGeometry {
+    pub agent_open: bool,
+    pub references: Vec<cad_agent::Reference>,
+    pub agent_thinking: bool,
+    pub agent_messages: Vec<String>,
+    pub agent_error: Option<String>,
+    pub highlights: Vec<String>,
     pub viewport: [f32; 4],
     pub controls: BTreeMap<String, ControlGeometry>,
     pub parameters_open: bool,

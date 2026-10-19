@@ -175,6 +175,19 @@ impl<T: Transport> Controller<T> {
     }
     pub async fn act(&mut self, action: Action) {
         let (ticket, preview, result) = match action {
+            Action::AskAgent { id, .. } => {
+                (self.output)(Event::AgentReply {
+                    id,
+                    result: Err("Agent host adapter unavailable".into()),
+                });
+                return;
+            }
+            Action::ChooseAttachments | Action::LoadAttachments(_) => {
+                (self.output)(Event::AttachmentError(
+                    "Drop files into the desktop window, or use the browser file picker".into(),
+                ));
+                return;
+            }
             Action::Select(document) => {
                 self.active = Some(document);
                 let result = self.refresh(true).await;

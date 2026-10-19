@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+cad-agent.workspace = true
 eframe.workspace = true
 cad-ui-egui.workspace = true
 cad-protocol.workspace = true

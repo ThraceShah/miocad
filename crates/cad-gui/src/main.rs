@@ -39,9 +39,31 @@ impl eframe::App for Desktop {
         while let Ok(event) = self.bridge.events.try_recv() {
             self.workspace.apply(event, ctx);
         }
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        let mut paths = Vec::new();
+        let mut files = Vec::new();
+        for file in dropped {
+            if let Some(bytes) = file.bytes {
+                match cad_agent::Attachment::from_bytes(file.name, &bytes) {
+                    Ok(a) => files.push(a),
+                    Err(error) => self.workspace.apply(Event::AttachmentError(error), ctx),
+                }
+            } else if let Some(path) = file.path {
+                paths.push(path);
+            }
+        }
+        if !files.is_empty() {
+            self.workspace.apply(Event::Attachments(files), ctx);
+        }
+        if !paths.is_empty() {
+            let _ = self.bridge.send(Action::LoadAttachments(paths));
+        }
         for action in self.workspace.show(ctx) {
             let (ticket, preview) = match &action {
-                Action::Select(_) => (None, false),
+                Action::Select(_)
+                | Action::AskAgent { .. }
+                | Action::ChooseAttachments
+                | Action::LoadAttachments(_) => (None, false),
                 Action::NewDocument { ticket }
                 | Action::Refresh { ticket }
                 | Action::Reconnect { ticket }

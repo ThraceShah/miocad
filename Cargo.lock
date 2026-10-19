@@ -269,6 +269,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cad-agent"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cad-client",
+ "cad-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cad-cli"
 version = "0.1.0"
 dependencies = [
@@ -292,6 +304,7 @@ name = "cad-gui"
 version = "0.1.0"
 dependencies = [
  "cad-access",
+ "cad-agent",
  "cad-client",
  "cad-protocol",
  "cad-render",
@@ -352,6 +365,7 @@ name = "cad-ui-egui"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cad-agent",
  "cad-protocol",
  "cad-render",
  "egui",
@@ -366,6 +380,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "cad-access",
+ "cad-agent",
  "cad-client",
  "cad-protocol",
  "cad-render",

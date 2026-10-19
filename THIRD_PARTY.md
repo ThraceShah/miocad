@@ -34,3 +34,5 @@ Playwright 1.56.1 and its Chromium fallback are internal browser test tools, not
 P7 reuses pinned wgpu 27.0.1 for headless compute passes, pollster 0.4.0, bytemuck 1.25.2 (MIT OR Apache-2.0),
 and flate2 1.1.10 for bounded frame compression. These dependencies were already present transitively and are now used directly by cad-render.
 The bundle retains native/WASM crate notices and WGSL source belongs to this project; no third-party kernel source was modified.
+
+- Droid Sans Fallback (`assets/fonts/DroidSansFallbackFull.ttf`), Google Corp., Apache-2.0. Bundled for Chinese Agent conversations. Copyright notice and license: `third_party/notices/droid-sans/`. Original unmodified font from the installed Debian `fonts-droid-fallback` package.
