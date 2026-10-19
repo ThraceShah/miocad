@@ -175,7 +175,7 @@ impl<T: Transport> Controller<T> {
     }
     pub async fn act(&mut self, action: Action) {
         let (ticket, preview, result) = match action {
-            Action::AskAgent { id, .. } => {
+            Action::AskAgent { id, .. } | Action::UndoAgent { id, .. } => {
                 (self.output)(Event::AgentReply {
                     id,
                     result: Err("Agent host adapter unavailable".into()),

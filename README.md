@@ -148,4 +148,4 @@ headless wgpu 的 depth/Face ID/Edge ID 与 CPU fallback 已实际验证，渲�
 
 平板工作区采用文档标签、顶部图标栏、可收起的左侧参数区和透明模型树。单指旋转、双指捏合缩放/移动平移；工具栏另有 Zoom ± 和 Fit。竖屏不再保留两侧常驻栏。操作与固化测试见 [平板布局](docs/tablet-ui.md)。
 
-顶部 Agent 打开带命名边/面/体/特征引用的对话面板，支持文件和图片，通过本机 Agent 提出 Box / 定半径 Fillet 建议并进入内核预览。配置、引用版本边界与测试见 [Agent 工作区](docs/agent-workspace.md)。
+顶部 Agent 打开带命名边/面/体/特征引用的对话面板，支持文件和图片，本机 Agent 自主执行 Box / 定半径 Fillet 多步任务并验证结果，默认无需预览或审批，支持撤销整个任务。配置、引用版本边界与测试见 [Agent 工作区](docs/agent-workspace.md)。

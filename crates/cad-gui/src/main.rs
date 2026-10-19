@@ -37,6 +37,11 @@ impl Desktop {
 impl eframe::App for Desktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         while let Ok(event) = self.bridge.events.try_recv() {
+            if matches!(&event,Event::AgentReply{result:Ok(state),..} if state.done) {
+                if let Some(active) = self.workspace.model.active.clone() {
+                    let _ = self.bridge.send(Action::Select(active));
+                }
+            }
             self.workspace.apply(event, ctx);
         }
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
@@ -59,9 +64,14 @@ impl eframe::App for Desktop {
             let _ = self.bridge.send(Action::LoadAttachments(paths));
         }
         for action in self.workspace.show(ctx) {
+            let agent_id = match &action {
+                Action::AskAgent { id, .. } | Action::UndoAgent { id, .. } => Some(*id),
+                _ => None,
+            };
             let (ticket, preview) = match &action {
                 Action::Select(_)
                 | Action::AskAgent { .. }
+                | Action::UndoAgent { .. }
                 | Action::ChooseAttachments
                 | Action::LoadAttachments(_) => (None, false),
                 Action::NewDocument { ticket }
@@ -72,6 +82,16 @@ impl eframe::App for Desktop {
                 Action::Preview { ticket, .. } => (Some(*ticket), true),
             };
             if let Err(message) = self.bridge.send(action) {
+                if let Some(id) = agent_id {
+                    self.workspace.apply(
+                        Event::AgentReply {
+                            id,
+                            result: Err(message),
+                        },
+                        ctx,
+                    );
+                    continue;
+                }
                 self.workspace.apply(
                     Event::Failed {
                         ticket,

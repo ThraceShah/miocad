@@ -1,5 +1,5 @@
 use super::*;
-use cad_agent::{Attachment, Message, Proposal, Reference, ReferenceKind, Reply, Turn};
+use cad_agent::{Attachment, Message, Reference, ReferenceKind, Turn};
 #[derive(Default)]
 pub struct Chat {
     pub open: bool,
@@ -11,7 +11,7 @@ pub struct Chat {
     pub thinking: bool,
     pub request: u64,
     pub turn: Option<Turn>,
-    pub proposal: Option<Reply>,
+    pub result: Option<cad_agent::TaskState>,
     pub error: Option<String>,
     pub focused: Option<Reference>,
 }
@@ -87,37 +87,39 @@ impl Workspace {
             self.add_reference(r);
         }
     }
-    pub(super) fn agent_reply(&mut self, id: u64, result: Result<Reply, String>) {
+    pub(super) fn agent_reply(&mut self, id: u64, result: Result<cad_agent::TaskState, String>) {
         if id != self.chat.request || !self.chat.thinking {
             return;
         }
         self.chat.thinking = false;
         match result {
             Ok(reply) => {
-                let Some(turn) = &self.chat.turn else {
-                    return;
-                };
-                if !self
-                    .model
-                    .current()
-                    .is_some_and(|d| d.document == turn.document && d.revision == turn.revision)
-                {
-                    self.chat.error=Some("Model changed during this turn. Re-select references and ask again; nothing was applied.".into());
+                if !reply.done {
+                    self.chat.thinking = true;
+                    self.chat.result = Some(reply);
                     return;
                 }
-                if let Err(e) = turn.validate_reply(&reply) {
-                    self.chat.error = Some(e);
-                    return;
-                }
+                let revision = reply.revision;
                 self.chat.messages.push(ChatEntry {
-                    document: turn.document.clone(),
-                    revision: turn.revision,
+                    document: reply.document.clone(),
+                    revision,
                     role: "assistant".into(),
                     text: reply.text.clone(),
                     references: vec![],
                     files: vec![],
                 });
-                self.chat.proposal = Some(reply);
+                if !reply.steps.is_empty() {
+                    self.chat
+                        .references
+                        .retain(|r| r.document != reply.document || r.revision == reply.revision);
+                    if self.chat.focused.as_ref().is_some_and(|r| {
+                        r.document == reply.document && r.revision != reply.revision
+                    }) {
+                        self.chat.focused = None;
+                    }
+                }
+                self.chat.result = Some(reply);
+                self.model.view_changed();
             }
             Err(e) => self.chat.error = Some(e),
         }
@@ -145,44 +147,6 @@ impl Workspace {
         }
         self.chat.open = true;
     }
-    fn preview_proposal(&mut self, actions: &mut Vec<Action>) {
-        let (Some(turn), Some(reply)) = (&self.chat.turn, &self.chat.proposal) else {
-            return;
-        };
-        if !self
-            .model
-            .current()
-            .is_some_and(|d| d.document == turn.document && d.revision == turn.revision)
-        {
-            self.chat.error =
-                Some("Proposal is stale. Ask again for the current document revision.".into());
-            return;
-        }
-        if let Err(e) = turn.validate_reply(reply) {
-            self.chat.error = Some(e);
-            return;
-        }
-        self.model.cancel_preview();
-        match reply.proposal.as_ref() {
-            Some(Proposal::Fillet { reference, radius }) => {
-                self.model
-                    .select_edge(reference.clone(), turn.revision.get());
-                self.model.radius = *radius;
-                self.radius_text = radius.to_string();
-                self.model.mode = Mode::Fillet;
-            }
-            Some(Proposal::Box { size }) => {
-                self.model.size = *size;
-                self.size_text = size.map(|v| v.to_string());
-                self.model.mode = Mode::Box;
-            }
-            None => return,
-        }
-        self.inspector_open = true;
-        if let Some((ticket, command)) = self.model.begin_preview() {
-            actions.push(Action::Preview { ticket, command });
-        }
-    }
     pub(super) fn chat_panel(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         if !self.chat.open {
             return;
@@ -195,7 +159,7 @@ impl Workspace {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("CAD Agent").strong().color(ACCENT));
-                    ui.label("Reference > Ask > Preview > Confirm");
+                    ui.label("Reference > Ask > Agent executes > Result");
                     if ui.small_button("×").clicked() {
                         self.chat.open = false;
                     }
@@ -285,6 +249,7 @@ impl Workspace {
                     self.geometry.record("chat-input", &input, true);
                     let enabled = !self.chat.thinking
                         && self.model.connected
+                        && !self.model.busy
                         && self.model.current().is_some()
                         && !self.chat.draft.trim().is_empty()
                         && self.model.preview.is_none()
@@ -348,7 +313,7 @@ impl Workspace {
                                 });
                                 self.chat.draft.clear();
                                 self.chat.error = None;
-                                self.chat.proposal = None;
+                                self.chat.result = None;
                                 self.chat.thinking = true;
                                 self.chat.request += 1;
                                 self.chat.turn = Some(turn.clone());
@@ -370,33 +335,36 @@ impl Workspace {
                 if self.chat.thinking {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Local Agent is thinking…");
+                        ui.label("Agent is working autonomously…");
                     });
                 }
                 if let Some(error) = &self.chat.error {
                     ui.colored_label(Color32::LIGHT_RED, error);
                 }
-                let proposal_ready = self
-                    .chat
-                    .proposal
-                    .as_ref()
-                    .is_some_and(|r| r.proposal.is_some());
-                if proposal_ready {
-                    ui.horizontal(|ui| {
-                        let enabled = self.model.can_edit()
-                            && self.chat.turn.as_ref().is_some_and(|t| {
-                                self.model.current().is_some_and(|d| {
-                                    d.document == t.document && d.revision == t.revision
-                                })
-                            });
-                        let r =
-                            ui.add_enabled(enabled, egui::Button::new("Preview Agent proposal"));
-                        self.geometry.record("agent-preview", &r, enabled);
+                if let Some(result) = self.chat.result.clone() {
+                    ui.label(format!(
+                        "{} · {} operations · r{}",
+                        result.phase,
+                        result.steps.len(),
+                        result.revision.get()
+                    ));
+                    let enabled = !self.chat.thinking
+                        && result.done
+                        && result.can_undo
+                        && self.model.current().is_some_and(|d| {
+                            d.document == result.document && d.revision == result.revision
+                        });
+                    if result.can_undo {
+                        let r = ui.add_enabled(enabled, egui::Button::new("Undo Agent task"));
+                        self.geometry.record("agent-undo", &r, enabled);
                         if r.clicked() {
-                            self.preview_proposal(actions);
+                            self.chat.thinking = true;
+                            actions.push(Action::UndoAgent {
+                                id: self.chat.request,
+                                task: result.id,
+                            });
                         }
-                        ui.small("No model changes until Confirm.");
-                    });
+                    }
                 }
                 egui::ScrollArea::vertical()
                     .id_salt("chat-messages")
@@ -504,29 +472,26 @@ mod tests {
         assert!(w.reference_highlights().is_empty());
     }
     #[test]
-    fn delayed_agent_response_cannot_preview_after_document_change() {
+    fn responses_are_bound_to_the_original_task_and_never_request_approval() {
         let mut w = workspace();
         w.chat.thinking = true;
         w.chat.request = 7;
-        w.chat.turn = Some(Turn {
+        let state = cad_agent::TaskState {
+            id: "7".into(),
             document: w.model.active.clone().unwrap(),
-            revision: Revision::new(1).unwrap(),
-            text: "Box".into(),
-            references: vec![],
-            attachments: vec![],
-            history: vec![],
-        });
-        let reply = Reply {
-            text: "Preview Box".into(),
-            proposal: Some(Proposal::Box { size: [5.; 3] }),
+            before: Revision::new(1).unwrap(),
+            revision: Revision::new(2).unwrap(),
+            phase: "completed".into(),
+            text: "Done".into(),
+            steps: vec![],
+            can_undo: true,
+            done: true,
         };
-        w.agent_reply(6, Ok(reply.clone()));
+        w.agent_reply(6, Ok(state.clone()));
         assert!(w.chat.thinking);
-        assert!(w.chat.proposal.is_none());
-        w.model.documents[0].revision = Revision::new(2).unwrap();
-        w.agent_reply(7, Ok(reply));
+        assert!(w.chat.result.is_none());
+        w.agent_reply(7, Ok(state));
         assert!(!w.chat.thinking);
-        assert!(w.chat.proposal.is_none());
-        assert!(w.chat.error.is_some());
+        assert_eq!(w.chat.messages[0].text, "Done");
     }
 }

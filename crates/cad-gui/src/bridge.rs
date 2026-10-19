@@ -13,6 +13,8 @@ pub struct Bridge {
     views: mpsc::Sender<ViewRequest>,
     host_config: Config,
     host_output: Output,
+    tasks: std::sync::Mutex<Option<cad_agent::host::Tasks>>,
+    task_namespace: String,
 }
 impl Bridge {
     pub fn start(config: Config, wake: Arc<dyn Fn() + Send + Sync>) -> Self {
@@ -133,6 +135,8 @@ impl Bridge {
             views,
             host_config,
             host_output,
+            tasks: std::sync::Mutex::new(None),
+            task_namespace: cad_client::shared::unique_id().expect("OS random source unavailable"),
         }
     }
     pub fn send(&self, action: Action) -> Result<(), String> {
@@ -143,27 +147,37 @@ impl Bridge {
                 service,
                 session,
             } => {
-                let config = self.host_config.clone();
-                let output = self.host_output.clone();
-                std::thread::spawn(move || {
-                    let result = (|| -> Result<cad_agent::Reply, String> {
-                        let endpoint: cad_protocol::service::ServiceEndpoint =
-                            serde_json::from_slice(
-                                &std::fs::read(config.options.runtime_dir.join("endpoint.json"))
-                                    .map_err(|_| "CAD service unavailable")?,
-                            )
-                            .map_err(|_| "Invalid CAD endpoint")?;
-                        if endpoint.service_id != service {
-                            return Err("CAD service changed. Reconnect and ask again".into());
-                        }
-                        tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .map_err(|e| e.to_string())?
-                            .block_on(cad_agent::host::ask(endpoint, &session, turn))
-                    })();
-                    output.send(Event::AgentReply { id, result });
-                });
+                let endpoint: cad_protocol::service::ServiceEndpoint = serde_json::from_slice(
+                    &std::fs::read(self.host_config.options.runtime_dir.join("endpoint.json"))
+                        .map_err(|_| "CAD endpoint unavailable")?,
+                )
+                .map_err(|_| "Invalid CAD endpoint")?;
+                if endpoint.service_id != service {
+                    return Err("CAD service changed; reconnect".into());
+                }
+                let host = cad_agent::host::Tasks::new(
+                    self.host_config.options.runtime_dir.join("agent-tasks"),
+                    endpoint,
+                    session,
+                );
+                *self.tasks.lock().unwrap() = Some(host.clone());
+                self.run_agent(
+                    host,
+                    id,
+                    format!("{}-{id}", self.task_namespace),
+                    Some(turn),
+                    false,
+                );
+                Ok(())
+            }
+            Action::UndoAgent { id, task } => {
+                let host = self
+                    .tasks
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .ok_or("Agent task host unavailable")?;
+                self.run_agent(host, id, task, None, true);
                 Ok(())
             }
             Action::ChooseAttachments => {
@@ -199,6 +213,53 @@ impl Bridge {
             _ => self.commands.try_send(action).map_err(|e| e.to_string()),
         }
     }
+    fn run_agent(
+        &self,
+        host: cad_agent::host::Tasks,
+        id: u64,
+        task: String,
+        turn: Option<cad_agent::Turn>,
+        undo: bool,
+    ) {
+        let output = self.host_output.clone();
+        let owner = self.host_config.client_id.clone();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let mut result = if let Some(turn) = turn {
+                    host.start(
+                        &owner,
+                        cad_agent::TaskRequest {
+                            id: task.clone(),
+                            turn,
+                        },
+                    )
+                    .await
+                } else if undo {
+                    host.undo(&owner, &task).await
+                } else {
+                    host.status(&owner, &task).await
+                };
+                loop {
+                    let done = result.as_ref().map_or(true, |s| s.done);
+                    let event = Event::AgentReply { id, result };
+                    let connected = if done {
+                        output.send(event)
+                    } else {
+                        output.progress(event)
+                    };
+                    if !connected || done {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                    result = host.status(&owner, &task).await;
+                }
+            });
+        });
+    }
     pub fn render(&self, view: ViewRequest) -> Result<(), String> {
         self.views.send(view).map_err(|e| e.to_string())
     }
@@ -209,6 +270,17 @@ struct Output {
     wake: Arc<dyn Fn() + Send + Sync>,
 }
 impl Output {
+    // A minimized window must not stall autonomous modeling when progress fills the UI queue.
+    fn progress(&self, event: Event) -> bool {
+        match self.sender.try_send(event) {
+            Ok(()) => {
+                (self.wake)();
+                true
+            }
+            Err(mpsc::TrySendError::Full(_)) => true,
+            Err(mpsc::TrySendError::Disconnected(_)) => false,
+        }
+    }
     fn send(&self, event: Event) -> bool {
         let sent = self.sender.send(event).is_ok();
         if sent {

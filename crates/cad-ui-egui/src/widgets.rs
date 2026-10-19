@@ -1174,8 +1174,9 @@ impl Workspace {
                                                 };
                                                 let target=format!("event:{}",e.event_id.get());
                                                 let referenced=self.chat.references.iter().any(|r|self.reference_current(r)&&r.kind==ReferenceKind::Feature&&r.target==target);
-                                                let response=ui.selectable_label(referenced,format!("{label} · r{}",e.revision.get())).on_hover_text("Reference an operation record; viewport highlight shows current body context, not historical generated faces.");
-                                                self.geometry.record(format!("feature-{}",e.event_id.get()),&response,true);
+                                                let enabled=matches!(e.command.as_str(),"model.box"|"model.fillet");
+                                                let response=ui.add_enabled(enabled,egui::Button::selectable(referenced,format!("{label} · r{}",e.revision.get()))).on_hover_text("Reference an operation record; viewport highlight shows current body context, not historical generated faces.");
+                                                self.geometry.record(format!("feature-{}",e.event_id.get()),&response,enabled);
                                                 if response.clicked() && matches!(e.command.as_str(),"model.box"|"model.fillet") {self.chat.open=true;if let Some(r)=self.named_reference(ReferenceKind::Feature,target,label){self.add_reference(r);}}
                                             }
                                             if self.history_truncated {
@@ -1566,6 +1567,7 @@ impl Workspace {
         self.geometry.agent_thinking = self.chat.thinking;
         self.geometry.agent_messages = self.chat.messages.iter().map(|m| m.text.clone()).collect();
         self.geometry.agent_error = self.chat.error.clone();
+        self.geometry.agent_task = self.chat.result.clone();
         self.geometry.highlights = self.reference_highlights();
         actions
     }

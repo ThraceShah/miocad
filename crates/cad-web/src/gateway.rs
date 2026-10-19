@@ -56,7 +56,7 @@ pub struct Gateway {
     stripped_prefix: bool,
     trusted_access: bool,
     access: Mutex<Access>,
-    agent_slots: tokio::sync::Semaphore,
+    tasks: cad_agent::host::Tasks,
 }
 fn same_secret(a: &str, b: &str) -> bool {
     let mut difference = a.len() ^ b.len();
@@ -74,6 +74,11 @@ impl Gateway {
         code: String,
     ) -> Self {
         Self {
+            tasks: cad_agent::host::Tasks::new(
+                std::env::temp_dir().join("miocad-agent-tasks"),
+                endpoint.clone(),
+                session.clone(),
+            ),
             endpoint,
             session,
             secure: origin.starts_with("https://"),
@@ -82,13 +87,17 @@ impl Gateway {
             origin,
             base,
             code,
-            agent_slots: tokio::sync::Semaphore::new(2),
+
             access: Mutex::new(Access {
                 grants: HashMap::new(),
                 attempts: 0,
                 window: Instant::now(),
             }),
         }
+    }
+    pub fn with_agent_tasks(mut self, root: PathBuf) -> Self {
+        self.tasks = cad_agent::host::Tasks::new(root, self.endpoint.clone(), self.session.clone());
+        self
     }
     pub fn with_stripped_prefix(mut self, stripped: bool) -> Self {
         self.stripped_prefix = stripped;
@@ -292,24 +301,53 @@ fn scoped_request(value: Value, grant: &Grant) -> Result<Value, Error> {
     }
 }
 
+fn task_owner(grant: &Grant) -> &str {
+    grant
+        .context
+        .client_id
+        .as_str()
+        .rsplit_once('-')
+        .map(|(root, _)| root)
+        .unwrap_or(grant.context.client_id.as_str())
+}
 async fn agent_turn(
     State(g): State<Arc<Gateway>>,
     headers: HeaderMap,
-    Json(turn): Json<cad_agent::Turn>,
+    Json(request): Json<cad_agent::TaskRequest>,
 ) -> Result<Json<Value>, Error> {
     let grant = g.grant(&headers).await?;
-    if grant.context.service_id.as_ref().map(|s| s.as_str()) != Some(&g.endpoint.service_id) {
-        return Err(UNAVAILABLE);
-    }
-    let _permit = g.agent_slots.try_acquire().map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "Agent is busy; try again after the current turn",
-        )
-    })?;
-    let result = cad_agent::host::ask(g.endpoint.clone(), &g.session, turn).await;
+    let result = g.tasks.start(task_owner(&grant), request).await;
     Ok(Json(match result {
-        Ok(reply) => json!({"ok":true,"reply":reply}),
+        Ok(task) => json!({"ok":true,"task":task}),
+        Err(error) => json!({"ok":false,"error":error}),
+    }))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AgentTaskId {
+    id: String,
+}
+async fn agent_status(
+    State(g): State<Arc<Gateway>>,
+    headers: HeaderMap,
+    Json(body): Json<AgentTaskId>,
+) -> Result<Json<Value>, Error> {
+    let grant = g.grant(&headers).await?;
+    let result = g.tasks.status(task_owner(&grant), &body.id).await;
+    Ok(Json(match result {
+        Ok(task) => json!({"ok":true,"task":task}),
+        Err(error) => json!({"ok":false,"error":error}),
+    }))
+}
+async fn agent_undo(
+    State(g): State<Arc<Gateway>>,
+    headers: HeaderMap,
+    Json(body): Json<AgentTaskId>,
+) -> Result<Json<Value>, Error> {
+    let grant = g.grant(&headers).await?;
+    let result = g.tasks.undo(task_owner(&grant), &body.id).await;
+    Ok(Json(match result {
+        Ok(task) => json!({"ok":true,"task":task}),
         Err(error) => json!({"ok":false,"error":error}),
     }))
 }
@@ -494,6 +532,8 @@ pub fn router(gateway: Gateway, assets: PathBuf) -> Router {
             "/api/agent",
             post(agent_turn).layer(DefaultBodyLimit::max(6 * 1024 * 1024)),
         )
+        .route("/api/agent/status", post(agent_status))
+        .route("/api/agent/undo", post(agent_undo))
         .route("/api/snapshot", post(snapshot))
         .route("/api/view", post(view))
         .route("/api/events", post(events))
@@ -630,6 +670,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let app = router(
         Gateway::new(client.endpoint().clone(), session, origin, base, code)
+            .with_agent_tasks(config.options.runtime_dir.join("agent-tasks"))
             .with_stripped_prefix(std::env::var("CAD_WEB_STRIP_PREFIX").as_deref() == Ok("1"))
             .with_trusted_access(std::env::var("CAD_WEB_TRUSTED_ACCESS").as_deref() == Ok("1")),
         assets,

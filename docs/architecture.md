@@ -230,4 +230,4 @@ P7 的 Web 主视口实际展示服务端逐帧返回的位图；相机改变立
 
 Workspace 统一使用文档 tabs、顶部矢量工具带、左侧可收起 PropertyManager 和透明叠加模型树。树的操作记录来自现有事件查询，不能视为可回编的参数化特征树。相机支持锚点缩放、双指平移及多指结束保护；按比例生成有限尺寸的拾取图。桌面与 Web 共用 local_view GPU raster，服务端仍负责 B-Rep、文档、版本和 headless ID / capture。只读 UI 几何桥为自动化返回实际控件位置，既不承担 CAD 状态权威，也不暴露内部 endpoint/token。详见 `docs/tablet-ui.md`。
 
-2026-10-19：新增同级 `cad-agent` 宿主适配与版本化引用上下文。共享 egui 对话面板产生 Turn；Web/native 宿主独立异步调用本机 Agent，仅返回 typed Proposal，经权限/真实场景/revision/显式引用校验后，由 UI 进入既有 Commander 预览/确认链路。内核、MCP、CLI 不依赖 Pi 或任何模型；完整边界见 `agent-workspace.md`。
+2026-10-19：同级 `cad-agent` 宿主适配与版本化引用上下文。共享 egui 对话面板产生 Turn；Rust 宿主拥有自主后台任务循环：真实场景 → Agent 下一步 → Commander 事务提交 → B-Rep 验证 → 实际结果/错误反馈 → 继续或完成。Agent 流程默认无预览/审批，支持按任务整组撤销、失败回滚、写前回执及禁止不确定写入重放；UI 只发送目标/查询进度/展示结果。手动建模交互保持原样。内核、MCP、CLI 不绑定 Pi 或任何模型；完整边界见 `agent-workspace.md`。

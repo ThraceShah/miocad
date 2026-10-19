@@ -19,6 +19,10 @@ pub enum Action {
         service: String,
         session: String,
     },
+    UndoAgent {
+        id: u64,
+        task: String,
+    },
     ChooseAttachments,
     LoadAttachments(Vec<std::path::PathBuf>),
     NewDocument {
@@ -54,7 +58,7 @@ pub struct Failure {
 pub enum Event {
     AgentReply {
         id: u64,
-        result: Result<cad_agent::Reply, String>,
+        result: Result<cad_agent::TaskState, String>,
     },
     Attachments(Vec<cad_agent::Attachment>),
     AttachmentError(String),

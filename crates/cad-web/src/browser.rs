@@ -334,6 +334,14 @@ impl Browser {
         let mut workspace = Workspace::default();
         workspace.browser_downloads = true;
         workspace.local_backend = Some(format!("{:?}", gpu.adapter.get_info().backend));
+        if let Ok(Some(storage)) = web_sys::window().unwrap().session_storage() {
+            if let Ok(Some(task)) = storage.get_item("miocad.agent.task") {
+                workspace.chat.open = true;
+                workspace.chat.thinking = true;
+                workspace.chat.request = 1;
+                start_agent(events.clone(), cc.egui_ctx.clone(), 1, task, None, false);
+            }
+        }
         Ok(Self {
             workspace,
             actions: sender,
@@ -348,6 +356,74 @@ impl Browser {
         })
     }
 }
+
+fn start_agent(
+    output: Rc<RefCell<VecDeque<Event>>>,
+    ctx: egui::Context,
+    id: u64,
+    task: String,
+    turn: Option<cad_agent::Turn>,
+    undo: bool,
+) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let initial = if let Some(turn) = turn {
+            json_http("agent", json!({"id":task,"turn":turn})).await
+        } else if undo {
+            json_http("agent/undo", json!({"id":task})).await
+        } else {
+            json_http("agent/status", json!({"id":task})).await
+        };
+        let mut value = initial;
+        let mut failures = 0;
+        loop {
+            match value {
+                Ok(ref body) if body["ok"] == true => {
+                    match serde_json::from_value::<cad_agent::TaskState>(body["task"].clone()) {
+                        Ok(state) => {
+                            let done = state.done;
+                            output.borrow_mut().push_back(Event::AgentReply {
+                                id,
+                                result: Ok(state),
+                            });
+                            ctx.request_repaint();
+                            if done {
+                                break;
+                            }
+                        }
+                        Err(_) => {
+                            output.borrow_mut().push_back(Event::AgentReply {
+                                id,
+                                result: Err("Invalid Agent task status".into()),
+                            });
+                            ctx.request_repaint();
+                            break;
+                        }
+                    }
+                    failures = 0;
+                }
+                Ok(body) => {
+                    output.borrow_mut().push_back(Event::AgentReply {
+                        id,
+                        result: Err(body["error"].as_str().unwrap_or("Agent unavailable").into()),
+                    });
+                    ctx.request_repaint();
+                    break;
+                }
+                Err(_) => {
+                    failures += 1;
+                    if failures >= 5 {
+                        output.borrow_mut().push_back(Event::AgentReply{id,result:Err("Task connection interrupted. Reload to recover status; no modeling command was replayed.".into())});
+                        ctx.request_repaint();
+                        break;
+                    }
+                }
+            }
+            gloo_timers::future::TimeoutFuture::new(400).await;
+            value = json_http("agent/status", json!({"id":task})).await;
+        }
+    });
+}
+
 fn download(bytes: &[u8]) -> Result<(), JsValue> {
     let data = js_sys::Uint8Array::from(bytes);
     let parts = js_sys::Array::new();
@@ -389,6 +465,11 @@ impl eframe::App for Browser {
                     continue;
                 }
             }
+            if matches!(&event,Event::AgentReply{result:Ok(state),..} if state.done) {
+                if let Some(active) = self.workspace.model.active.clone() {
+                    let _ = self.actions.unbounded_send(Action::Select(active));
+                }
+            }
             self.workspace.apply(event, ctx);
         }
         if self.workspace.chat.open {
@@ -420,26 +501,27 @@ impl eframe::App for Browser {
         for action in self.workspace.show(ctx) {
             match action {
                 Action::AskAgent { id, turn, .. } => {
-                    let output = self.events.clone();
-                    let repaint = ctx.clone();
-                    wasm_bindgen_futures::spawn_local(async move {
-                        let result =
-                            match json_http("agent", serde_json::to_value(turn).unwrap()).await {
-                                Ok(value) if value["ok"] == true => {
-                                    serde_json::from_value(value["reply"].clone())
-                                        .map_err(|_| "Invalid Agent response".into())
-                                }
-                                Ok(value) => Err(value["error"]
-                                    .as_str()
-                                    .unwrap_or("Agent unavailable")
-                                    .into()),
-                                Err(error) => Err(error.message),
-                            };
-                        output
-                            .borrow_mut()
-                            .push_back(Event::AgentReply { id, result });
-                        repaint.request_repaint();
-                    });
+                    let task = format!(
+                        "{}-{id}",
+                        js_sys::Reflect::get(&web_sys::window().unwrap(), &"cadView".into())
+                            .unwrap()
+                            .as_string()
+                            .unwrap()
+                    );
+                    if let Ok(Some(storage)) = web_sys::window().unwrap().session_storage() {
+                        let _ = storage.set_item("miocad.agent.task", &task);
+                    }
+                    start_agent(
+                        self.events.clone(),
+                        ctx.clone(),
+                        id,
+                        task,
+                        Some(turn),
+                        false,
+                    );
+                }
+                Action::UndoAgent { id, task } => {
+                    start_agent(self.events.clone(), ctx.clone(), id, task, None, true)
                 }
                 Action::ChooseAttachments => {
                     if let Ok(f) =

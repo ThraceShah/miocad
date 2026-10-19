@@ -37,27 +37,26 @@ try:
     for char in 'fillet':
         smoke.ui('key',sym=ord(char));time.sleep(.05)
     smoke.ui('control',name='chat-send')
-    end=time.monotonic()+15
+    end=time.monotonic()+25
     while True:
         layout=smoke.ui('layout')
         assert not layout.get('agent_error'),layout
-        if layout['controls'].get('agent-preview',{}).get('enabled'):break
+        if layout.get('agent_task',{}).get('done'):break
         assert time.monotonic()<end
         time.sleep(.1)
-    assert smoke.state()['revision']==1
-    smoke.ui('control',name='agent-preview')
-    smoke.wait_view(True)
-    assert smoke.state()['revision']==1
-    capture=smoke.ui('shot',name='agent-native-preview')
-    shutil.copy2(capture,OUT/'native-preview.png')
-    smoke.ui('control',name='confirm')
+    assert layout['agent_task']['phase']=='completed',layout
+    assert 'agent-preview' not in layout['controls'] and 'confirm' not in layout['controls']
     state=smoke.wait_revision(2)
     assert state['data']['valid'] and state['data']['volume']<1000
-    end=time.monotonic()+8
-    while smoke.ui('layout')['highlights']:
+    capture=smoke.ui('shot',name='agent-native-result')
+    shutil.copy2(capture,OUT/'native-result.png')
+    smoke.ui('control',name='agent-undo')
+    end=time.monotonic()+15
+    while smoke.ui('layout').get('agent_thinking'):
         assert time.monotonic()<end
         time.sleep(.1)
-    result=dict(passed=True,native_bridge=True,reference=refs[0],revision=2,valid=state['data']['valid'],preview_without_commit=True)
+    assert abs(smoke.state()['data']['volume']-1000)<1e-6
+    result=dict(passed=True,native_bridge=True,reference=refs[0],automatic_commit=True,no_approval=True,task_undo=True)
     (OUT/'native-results.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result))
 except Exception:

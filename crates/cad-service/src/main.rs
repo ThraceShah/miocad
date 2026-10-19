@@ -16,8 +16,10 @@ use tokio::{
     sync::{watch, Mutex},
     time::timeout,
 };
+mod client_ledger;
 const EVENT_LIMIT: usize = 64;
 struct Worker {
+    clients: Option<client_ledger::Clients>,
     child: Option<Child>,
     reader: Option<BufReader<ChildStdout>>,
     writer: Option<ChildStdin>,
@@ -35,7 +37,7 @@ struct Worker {
     views: BTreeMap<String, u64>,
 }
 impl Worker {
-    async fn start(path: &PathBuf) -> Result<Self, String> {
+    async fn start(path: &PathBuf, client_root: PathBuf) -> Result<Self, String> {
         let mut child = tokio::process::Command::new(path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -46,6 +48,7 @@ impl Worker {
         let reader = BufReader::new(child.stdout.take().ok_or("worker stdout missing")?);
         let writer = child.stdin.take().ok_or("worker stdin missing")?;
         let mut w = Self {
+            clients: None,
             child: Some(child),
             reader: Some(reader),
             writer: Some(writer),
@@ -72,9 +75,14 @@ impl Worker {
         }
         cad_protocol::validate_ref(&reply["result"], "HelloResult").map_err(|e| e.to_string())?;
         w.context = reply;
+        w.clients = Some(client_ledger::Clients::new(client_root, &w.context));
         Ok(w)
     }
-    async fn remote(endpoint: ServiceEndpoint, session: &str) -> Result<Self, String> {
+    async fn remote(
+        endpoint: ServiceEndpoint,
+        session: &str,
+        client_root: PathBuf,
+    ) -> Result<Self, String> {
         let observer = format!(
             "render-observer-{}",
             &endpoint.service_id[..16.min(endpoint.service_id.len())]
@@ -99,6 +107,7 @@ impl Worker {
             .as_u64()
             .ok_or("upstream high-water missing")?;
         Ok(Self {
+            clients: Some(client_ledger::Clients::new(client_root, &context)),
             child: None,
             reader: None,
             writer: None,
@@ -115,6 +124,19 @@ impl Worker {
             scene_cache: None,
             views: BTreeMap::new(),
         })
+    }
+    async fn client_exchange(&mut self, req: &Value) -> Result<Value, String> {
+        self.diagnostics();
+        if let Some(reason) = &self.lost {
+            return Err(format!("worker_lost: {reason}; no replay"));
+        }
+        if let Some(clients) = self.clients.take() {
+            let result = clients.exchange(self, req).await;
+            self.clients = Some(clients);
+            result
+        } else {
+            self.exchange(req).await
+        }
     }
     async fn exchange(&mut self, req: &Value) -> Result<Value, String> {
         if let Some(reason) = &self.lost {
@@ -468,6 +490,7 @@ impl Worker {
 }
 type Session = Arc<Mutex<Worker>>;
 struct Service {
+    client_root: PathBuf,
     endpoint: ServiceEndpoint,
     upstream: Option<ServiceEndpoint>,
     worker: PathBuf,
@@ -493,7 +516,8 @@ impl Service {
         if let Some(upstream) = &self.upstream {
             if !matches!(
                 &envelope.request,
-                ServiceRequest::RenderSnapshot { .. }
+                ServiceRequest::Rpc { .. }
+                    | ServiceRequest::RenderSnapshot { .. }
                     | ServiceRequest::RenderView { .. }
                     | ServiceRequest::RenderCapture { .. }
                     | ServiceRequest::RenderFrames { .. }
@@ -532,7 +556,7 @@ impl Service {
                 if keys.len() >= 15 {
                     return Err("session_limit: 16 workers per service".into());
                 }
-                let worker = Worker::start(&self.worker).await?;
+                let worker = Worker::start(&self.worker,self.client_root.clone()).await?;
                 let id = worker.context["session_id"].as_str().ok_or("invalid session")?.to_string();
                 self.sessions.lock().await.insert(id.clone(), Arc::new(Mutex::new(worker)));
                 keys.insert(key, id.clone());
@@ -544,7 +568,7 @@ impl Service {
                     return Err("reserved_client_id".into());
                 }
                 let session = self.session(session.as_deref().unwrap_or(&self.default)).await?;
-                let result = session.lock().await.exchange(&request).await;
+                let result = session.lock().await.client_exchange(&request).await;
                 result
             }
             ServiceRequest::Snapshot { session } => {
@@ -615,7 +639,7 @@ impl Service {
             if sessions.len() >= 16 {
                 return Err("session_limit".into());
             }
-            let worker = Worker::remote(upstream.clone(), id).await?;
+            let worker = Worker::remote(upstream.clone(), id, self.client_root.clone()).await?;
             let worker = Arc::new(Mutex::new(worker));
             sessions.insert(id.into(), worker.clone());
             return Ok(worker);
@@ -694,7 +718,7 @@ async fn run() -> Result<(), String> {
         Err(e) => return Err(e.to_string()),
     }
     // Kernel initialization and handshake must finish before endpoint publication.
-    let first = Worker::start(&worker).await?;
+    let first = Worker::start(&worker, root.join("owner-client-ledger")).await?;
     let default = first.context["session_id"]
         .as_str()
         .ok_or("missing session")?
@@ -722,6 +746,7 @@ async fn run() -> Result<(), String> {
     );
     let (stop, mut stopping) = watch::channel(false);
     let service = Arc::new(Service {
+        client_root: root.join("owner-client-ledger"),
         endpoint,
         upstream: None,
         worker,
@@ -818,9 +843,11 @@ async fn relay(root: PathBuf) -> Result<(), String> {
         address: listener.local_addr().map_err(|e| e.to_string())?,
         ..upstream.clone()
     };
-    let first = Worker::remote(upstream.clone(), &default).await?;
+    let first =
+        Worker::remote(upstream.clone(), &default, root.join("relay-client-ledger")).await?;
     let (stop, mut stopping) = watch::channel(false);
     let service = Arc::new(Service {
+        client_root: root.join("relay-client-ledger"),
         endpoint: endpoint.clone(),
         upstream: Some(upstream.clone()),
         worker: PathBuf::new(),

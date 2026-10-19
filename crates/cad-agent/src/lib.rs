@@ -1,4 +1,4 @@
-//! Agent-neutral named context and preview proposals. No kernel pointers or implicit writes.
+//! Agent-neutral context, bounded autonomous tasks and Commander operation contracts.
 #![forbid(unsafe_code)]
 use cad_protocol::*;
 use serde::{Deserialize, Serialize};
@@ -90,6 +90,8 @@ pub enum Proposal {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reply {
+    #[serde(default)]
+    pub failed: bool,
     pub text: String,
     pub proposal: Option<Proposal>,
 }
@@ -218,6 +220,7 @@ mod tests {
         let mut t = turn();
         t.validate().unwrap();
         let mut r = Reply {
+            failed: false,
             text: "Preview this fillet".into(),
             proposal: Some(Proposal::Fillet {
                 reference: "edge-ref".into(),
@@ -307,4 +310,28 @@ mod scope_tests {
         turn.references[0].document = DocumentId::new("another-doc").unwrap();
         assert!(validate_references(&turn, &scene, &[]).is_err());
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskRequest {
+    pub id: String,
+    pub turn: Turn,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepReceipt {
+    pub operation: Proposal,
+    pub revision: Revision,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskState {
+    pub id: String,
+    pub document: DocumentId,
+    pub before: Revision,
+    pub revision: Revision,
+    pub phase: String,
+    pub text: String,
+    pub steps: Vec<StepReceipt>,
+    pub can_undo: bool,
+    pub done: bool,
 }

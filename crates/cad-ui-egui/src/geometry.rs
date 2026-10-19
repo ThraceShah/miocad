@@ -11,6 +11,7 @@ pub struct UiGeometry {
     pub references: Vec<cad_agent::Reference>,
     pub agent_thinking: bool,
     pub agent_messages: Vec<String>,
+    pub agent_task: Option<cad_agent::TaskState>,
     pub agent_error: Option<String>,
     pub highlights: Vec<String>,
     pub viewport: [f32; 4],
