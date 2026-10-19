@@ -12,6 +12,12 @@ use std::{
     time::Duration,
 };
 use wasm_bindgen::{prelude::*, JsCast};
+thread_local! { static UI_GEOMETRY: RefCell<String> = RefCell::new("{}".into()); }
+/// Read-only screen-space geometry for assistive tools and GUI automation.
+#[wasm_bindgen]
+pub fn ui_geometry() -> String {
+    UI_GEOMETRY.with(|v| v.borrow().clone())
+}
 fn failure(message: impl ToString) -> Failure {
     Failure {
         kind: "service_unavailable".into(),
@@ -386,6 +392,10 @@ impl eframe::App for Browser {
         for action in self.workspace.show(ctx) {
             let _ = self.actions.unbounded_send(action);
         }
+        if let Ok(value) = serde_json::to_string(&self.workspace.geometry) {
+            UI_GEOMETRY.with(|v| *v.borrow_mut() = value);
+        }
+
         // Display is entirely local. Request an authoritative picking/capture frame only
         // after the camera settles; never queue network work at pointer-event frequency.
         let now = ctx.input(|i| i.time);

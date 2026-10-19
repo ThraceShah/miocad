@@ -1,5 +1,6 @@
 // Read-only touch orbit regression: rendering must advance even while /api/view is held.
 const {chromium}=require(process.env.CAD_PLAYWRIGHT||'playwright');
+const driver=require('./ui_driver.cjs');
 const assert=require('assert/strict'),fs=require('fs'),{spawnSync}=require('child_process');
 const url=process.env.CAD_WEB_URL||'https://example.ts.net/apps/miocad/';
 const out=process.env.CAD_WEB_TEST_OUTPUT||'artifacts/orbit';fs.mkdirSync(out,{recursive:true});
@@ -13,7 +14,7 @@ const out=process.env.CAD_WEB_TEST_OUTPUT||'artifacts/orbit';fs.mkdirSync(out,{r
   await page.goto(url);await page.locator('#workspace').waitFor({state:'visible'});await initial;
   await page.waitForTimeout(500);
   const files=[];async function shot(name){const path=`${out}/${name}.png`;await page.screenshot({path});files.push(path);}
-  await shot('before');
+  const viewport=await driver.view(page);await shot('before');
   let release;const held=new Promise(r=>release=r);let requests=0;
   await page.route('**/api/view',async route=>{requests++;await held;await route.continue().catch(()=>{});});
   await page.evaluate(()=>{window.orbitTimings=[];window.cadTestSubmits=0;window.orbitStarted=performance.now();window.orbitRunning=true;let previous=performance.now();function tick(now){window.orbitTimings.push(now-previous);previous=now;if(window.orbitRunning)requestAnimationFrame(tick);}requestAnimationFrame(tick);});
@@ -34,12 +35,12 @@ const out=process.env.CAD_WEB_TEST_OUTPUT||'artifacts/orbit';fs.mkdirSync(out,{r
 import sys,json,hashlib
 from PIL import Image
 results=[]
-for file in sys.argv[1:]:
-    image=Image.open(file).convert('RGB').crop((230,155,985,735))
+for file in sys.argv[5:]:
+    image=Image.open(file).convert('RGB').crop((int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[1])+int(sys.argv[3]),int(sys.argv[2])+int(sys.argv[4])))
     blue=sum(1 for r,g,b in image.getdata() if b>r*1.15 and g>r*1.1 and b>65 and r>25)
     results.append(dict(file=file,blue_pixels=blue,hash=hashlib.sha256(image.tobytes()).hexdigest()))
 print(json.dumps(results))
-`,...files],{encoding:'utf8'});assert.equal(analysis.status,0,analysis.stderr);
+`,String(Math.round(viewport.x)),String(Math.round(viewport.y)),String(Math.round(viewport.w)),String(Math.round(viewport.h)),...files],{encoding:'utf8'});assert.equal(analysis.status,0,analysis.stderr);
   const samples=JSON.parse(analysis.stdout);for(const sample of samples)assert(sample.blue_pixels>5000,`blank viewport: ${sample.file}`);
   assert(new Set(samples.map(s=>s.hash)).size>=5,'camera did not produce distinct local frames');
   release();await page.unroute('**/api/view');await page.waitForTimeout(600);

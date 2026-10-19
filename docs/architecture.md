@@ -224,3 +224,8 @@ Web 与 CAD daemon 使用独立持久进程；网关 attach-only，网页重部�
 P7 的 Web 主视口实际展示服务端逐帧返回的位图；相机改变立即隐藏过期帧，造成拖动时白屏，且严格 epoch 校验使连续拖动中的返回帧被丢弃。Web 现改用 `cad-ui-egui::local_view` 的 wgpu raster 管线直接绘制已获取的同一份 `Scene.mesh / edges`，采用深度缓冲和可见边；网格上传按场景身份缓存，相机输入只更新 48 字节 uniform。浏览器优先 WebGPU，缺少适配器时通过 wgpu 回退 WebGL2。没有 GPU 读回或网络往返参与相机绘制。
 
 相机静止 150ms 后再请求服务端 Frame，用于原有 ID 拾取、截图和确认前校验。服务端仍提供 headless GPU/CPU 渲染；绘制不依赖 Frame 是否到达，过期 ID 帧仍不可用于选择或确认。修改仅作用于 Web 启用的本地 GPU 绘制，桌面当前默认显示路径继续保留。样式、相机投影及拓扑 reference 共用协议；客户端三角化显示并非精确 B-Rep 求交。
+
+
+### 2026-10-19：共用的平板布局与触屏视图
+
+Workspace 统一使用文档 tabs、顶部矢量工具带、左侧可收起 PropertyManager 和透明叠加模型树。树的操作记录来自现有事件查询，不能视为可回编的参数化特征树。相机支持锚点缩放、双指平移及多指结束保护；按比例生成有限尺寸的拾取图。桌面与 Web 共用 local_view GPU raster，服务端仍负责 B-Rep、文档、版本和 headless ID / capture。只读 UI 几何桥为自动化返回实际控件位置，既不承担 CAD 状态权威，也不暴露内部 endpoint/token。详见 `docs/tablet-ui.md`。

@@ -31,6 +31,29 @@ impl Default for Camera {
     }
 }
 impl Camera {
+    pub fn zoom_at(&mut self, factor: f64, anchor: [f64; 2]) {
+        if !factor.is_finite() || factor <= 0. || anchor.iter().any(|v| !v.is_finite()) {
+            return;
+        }
+        let next = (self.zoom * factor).clamp(0.1, 20.);
+        let ratio = next / self.zoom;
+        for (i, a) in anchor.iter().enumerate() {
+            self.pan[i] = (*a - 0.5) + ratio * (self.pan[i] - (*a - 0.5));
+        }
+        self.zoom = next;
+    }
+    pub fn pan_by(&mut self, delta: [f64; 2], viewport: [f64; 2]) {
+        for i in 0..2 {
+            if delta[i].is_finite() && viewport[i] > 0. {
+                self.pan[i] = (self.pan[i] + delta[i] / viewport[i]).clamp(-20., 20.);
+            }
+        }
+    }
+    pub fn fit(&mut self) {
+        self.zoom = 1.;
+        self.pan = [0., 0.];
+    }
+
     /// Grab-style turntable: visible front surfaces follow the finger, independent of DPI.
     pub fn orbit(&mut self, delta: [f64; 2], viewport: [f64; 2]) {
         let gain = std::f64::consts::PI / viewport[0].min(viewport[1]).max(128.);

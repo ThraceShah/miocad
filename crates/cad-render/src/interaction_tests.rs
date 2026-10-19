@@ -104,3 +104,34 @@ fn subpixel_micro_fillet_retains_both_edge_candidates_on_cpu_and_gpu() {
         }
     }
 }
+
+#[test]
+fn pinch_keeps_anchor_fixed_pan_is_normalized_and_fit_preserves_orientation() {
+    let mut camera = Camera {
+        zoom: 1.2,
+        pan: [0.1, -0.15],
+        ..Default::default()
+    };
+    let anchor = [0.7, 0.25];
+    let world = [
+        (anchor[0] - 0.5 - camera.pan[0]) / camera.zoom,
+        (anchor[1] - 0.5 - camera.pan[1]) / camera.zoom,
+    ];
+    camera.zoom_at(2., anchor);
+    for i in 0..2 {
+        assert!((0.5 + camera.pan[i] + world[i] * camera.zoom - anchor[i]).abs() < 1e-12);
+    }
+    let before = camera;
+    camera.pan_by([60., 40.], [600., 800.]);
+    assert!((camera.pan[0] - before.pan[0] - 0.1).abs() < 1e-12);
+    assert!((camera.pan[1] - before.pan[1] - 0.05).abs() < 1e-12);
+    let orientation = [camera.yaw, camera.pitch];
+    camera.fit();
+    assert_eq!(camera.zoom, 1.);
+    assert_eq!(camera.pan, [0., 0.]);
+    assert_eq!([camera.yaw, camera.pitch], orientation);
+    camera.zoom_at(1e9, [0.5, 0.5]);
+    assert_eq!(camera.zoom, 20.);
+    camera.zoom_at(1e-9, [0.5, 0.5]);
+    assert_eq!(camera.zoom, 0.1);
+}

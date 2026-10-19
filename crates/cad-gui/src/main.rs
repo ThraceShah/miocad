@@ -7,11 +7,16 @@ struct Desktop {
     workspace: Workspace,
     bridge: Bridge,
     scheduled: u64,
+    probe_path: Option<std::path::PathBuf>,
+    probe_previous: String,
 }
 impl Desktop {
     fn new(cc: &eframe::CreationContext<'_>, config: Config) -> Self {
         Workspace::theme(&cc.egui_ctx);
+        let mut workspace = Workspace::default();
         if let Some(state) = &cc.wgpu_render_state {
+            cad_ui_egui::local_view::install(state);
+            workspace.local_backend = Some(format!("{:?}", state.adapter.get_info().backend));
             let info = state.adapter.get_info();
             eprintln!(
                 "cad-gui display: {:?} / {} / {:?}",
@@ -21,9 +26,11 @@ impl Desktop {
         let ctx = cc.egui_ctx.clone();
         let bridge = Bridge::start(config, Arc::new(move || ctx.request_repaint()));
         Self {
-            workspace: Workspace::default(),
+            workspace,
             bridge,
             scheduled: u64::MAX,
+            probe_path: std::env::var_os("CAD_GUI_PROBE_FILE").map(Into::into),
+            probe_previous: String::new(),
         }
     }
 }
@@ -55,6 +62,19 @@ impl eframe::App for Desktop {
                     },
                     ctx,
                 );
+            }
+        }
+        if let Some(path) = &self.probe_path {
+            if let Ok(value) = serde_json::to_string(&self.workspace.geometry) {
+                if value != self.probe_previous {
+                    let temporary = path.with_extension("tmp");
+                    if std::fs::write(&temporary, &value)
+                        .and_then(|_| std::fs::rename(&temporary, path))
+                        .is_ok()
+                    {
+                        self.probe_previous = value;
+                    }
+                }
             }
         }
         if self.scheduled != self.workspace.model.view_epoch {
@@ -109,6 +129,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .with_inner_size([1280., 820.])
             .with_min_inner_size([1050., 680.]),
         renderer: eframe::Renderer::Wgpu,
+        depth_buffer: 24,
         ..Default::default()
     };
     eframe::run_native(

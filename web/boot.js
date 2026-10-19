@@ -6,8 +6,9 @@ const error = document.querySelector('#error');
 async function open() {
   document.querySelector('#loading').style.display='grid';
   try {
-    const {default:init,start_web}=await import(new URL('pkg/cad_web.js',base));
+    const {default:init,start_web,ui_geometry}=await import(new URL('pkg/cad_web.js',base));
     await init();
+    window.cadUI=()=>JSON.parse(ui_geometry());
     document.querySelector('#login').style.display='none';
     document.querySelector('#workspace').style.display='block';
     await start_web();

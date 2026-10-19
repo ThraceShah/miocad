@@ -514,3 +514,17 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 - 生产状态前后完全相同：文档 revision 5 / 2、valid=true、cursor=9，原 owner PID=673288 未重启。三项持久服务 active，门户 HTTPS 200、miocad online=true；`web_trusted.cjs` 免码访问、刷新、嵌套路由和资源回归通过。
 
 固定几何样本由独立测试服务生成，不含生产文档数据；生成配方及边界见 `docs/viewport-p7.md`。证据、只读调查数据和模型前后快照保存在 Git 忽略的 artifacts 中。此修复提供对现有两条切边的明确选择，不代表恢复原始直角边，也没有执行任何 Undo / Redo / Fillet 提交。所有更改本地 Git 提交，不推送。
+
+## 2026-10-19：竖屏 CAD 工作区和双指缩放
+
+按 SolidWorks 式布局组织共享 egui 工作区：文档标签、视图上方矢量图标工具栏、按需左侧 PropertyManager、视口内半透明 FeatureManager。默认浏览不保留侧栏。树展示真实共享操作记录和拓扑，暂不支持回编历史特征参数。修正竖屏远程帧请求的纵横比；新增双指围绕中心缩放、双指平移、Zoom ± 和 Fit，并抑制多指结束后的误旋转/拾取。详情见 `docs/tablet-ui.md`。
+
+验证通过：
+- Rust workspace 40 项测试通过；新增相机缩放锚点、平移、Fit 和 768×1024 / 820×1180 / 1280×820 布局测试。native / wasm32 Clippy（`-D warnings`）、fmt、JS 语法、Python 编译及 diff 检查通过。
+- 新增独立服务浏览器测试 `tests/web_tablet.cjs`，固化到 CTest `web_tablet_workspace`。CTest 含构建 fixture 2/2 通过（23.16 秒）；WebGL2 DPR 2 / WebGPU DPR 1 均通过。覆盖双指放大/缩小/平移、方向不变、不误选、Fit、图标缩放、文档标签、左右布局、横竖屏比例、真实输入尺寸14的预览/取消，前后文档快照完全相同。
+- 原完整 Web 建模、断线/丢失确认核对、九条可见边及旋转后拾取、微小倒圆双边消歧、桌面 Xvfb 建模回归均迁移到真实控件边界并通过。桌面和 Web 使用相同本地 depth-tested GPU 视口。
+- 发布后真实 HTTPS 的 768×1024 / DPR 2 竖屏检查通过：全宽视口、双指放大、Fit、左侧参数、标签切换，无页面异常，RPC 仅 `render.scene`，未提交建模命令。人工检查竖屏与参数面板截图。
+- HTTPS WebGPU 旋转回归通过：48 次触摸移动，约3022ms内149次客户端 GPU 提交；阻塞新远程视图时所有采样仍有模型、五种不同图像，刷新回调中位数/P95约16.7ms。此为测试机器数据，不代表所有平板硬件帧率。免访问码、刷新、嵌套路径、WASM资源和 Cookie 回归通过。
+- 发布前后生产快照完全相同，文档 revision 5 / 2、cursor=9，原 owner PID=673288 未重启；三项持久服务 active，门户 HTTPS 200，miocad online=true。本地只读测试网关已关闭。
+
+证据：`artifacts/tablet-layout/`、`artifacts/tablet-webgl-2/`、`artifacts/tablet-webgpu-1/` 及相应原有建模测试目录（Git 忽略）。使用 Chromium 模拟触屏与实际 GPU 路径测试，尚未连接用户实体平板做硬件认证。未修改第三方内核源码、建模协议或生产几何。本地 Git 提交，不推送。

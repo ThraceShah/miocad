@@ -148,6 +148,12 @@ impl<T: Transport> Controller<T> {
             documents,
             cursor: self.cursor,
         });
+        let history = self.client()?.events(0).await?;
+        let events = serde_json::from_value(history["events"].clone()).unwrap_or_default();
+        (self.output)(Event::History {
+            events,
+            truncated: history["resync_required"] == true,
+        });
         if let Some((document, revision)) = selected {
             if force || self.last_scene.as_ref() != Some(&(document.clone(), revision)) {
                 let response = self

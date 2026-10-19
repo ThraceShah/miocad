@@ -15,7 +15,7 @@ runtime=Path(tempfile.mkdtemp(prefix='miocad-p5-window-'))
 log=(OUT/'xvfb.log').open('w')
 xvfb=subprocess.Popen(['/usr/bin/Xvfb','-displayfd','1','-screen','0','1280x820x24','-nolisten','tcp','+extension','GLX'],stdout=subprocess.PIPE,stderr=log,text=True)
 display=':'+xvfb.stdout.readline().strip()
-env=dict(os.environ,DISPLAY=display,LIBGL_ALWAYS_SOFTWARE='1',VK_ICD_FILENAMES='/usr/share/vulkan/icd.d/lvp_icd.json',XDG_RUNTIME_DIR=str(OUT/'xdg'))
+env=dict(os.environ,CAD_GUI_PROBE_FILE=str(OUT/'ui.json'),DISPLAY=display,LIBGL_ALWAYS_SOFTWARE='1',VK_ICD_FILENAMES='/usr/share/vulkan/icd.d/lvp_icd.json',XDG_RUNTIME_DIR=str(OUT/'xdg'))
 Path(env['XDG_RUNTIME_DIR']).mkdir(mode=0o700,exist_ok=True)
 xl=C.CDLL('libX11.so.6');xt=C.CDLL('libXtst.so.6')
 xl.XOpenDisplay.argtypes=[C.c_char_p];xl.XOpenDisplay.restype=C.c_void_p
@@ -58,7 +58,16 @@ try:
  for line in sys.stdin:
   try:
    cmd=json.loads(line);op=cmd['op']
-   if op=='click':click(cmd['x'],cmd['y']);result='clicked'
+   if op=='layout':result=json.loads((OUT/'ui.json').read_text())
+   elif op=='control':
+    until=time.monotonic()+10
+    while True:
+     layout=json.loads((OUT/'ui.json').read_text());button=layout['controls'].get(cmd['name'])
+     if button and (button['enabled'] or cmd.get('allow_disabled',False)):break
+     if time.monotonic()>until:raise ValueError('Control unavailable: '+cmd['name'])
+     time.sleep(.03)
+    x,y,w,h=button['rect'];scale=layout.get('scale',1);click(round((x+w/2)*scale),round((y+h/2)*scale));result=button
+   elif op=='click':click(cmd['x'],cmd['y']);result='clicked'
    elif op=='move':motion(cmd['x'],cmd['y']);result='moved'
    elif op=='drag':
     motion(*cmd['from']);xt.XTestFakeButtonEvent(xd,cmd.get('button',1),1,0);xl.XFlush(xd)

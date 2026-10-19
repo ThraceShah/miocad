@@ -36,6 +36,15 @@ pub struct Workspace {
     frame_revision: u64,
     frame_preview: bool,
     pub viewport_size: [u32; 2],
+    pub geometry: UiGeometry,
+    inspector_open: bool,
+    tree_open: bool,
+    size_text: [String; 3],
+    radius_text: String,
+    history: Vec<cad_protocol::Event>,
+    history_truncated: bool,
+    multi_active: bool,
+    touch_guard: bool,
 }
 impl Default for Workspace {
     fn default() -> Self {
@@ -57,6 +66,15 @@ impl Default for Workspace {
             frame_revision: 0,
             frame_preview: false,
             viewport_size: [640, 640],
+            geometry: UiGeometry::default(),
+            inspector_open: false,
+            tree_open: true,
+            size_text: ["10".into(), "10".into(), "10".into()],
+            radius_text: "1".into(),
+            history: Vec::new(),
+            history_truncated: false,
+            multi_active: false,
+            touch_guard: false,
         }
     }
 }
@@ -83,6 +101,10 @@ impl Workspace {
     }
     pub fn apply(&mut self, event: Event, ctx: &egui::Context) {
         match event {
+            Event::History { events, truncated } => {
+                self.history = events;
+                self.history_truncated = truncated;
+            }
             Event::Download { ticket, .. } => {
                 self.apply(
                     Event::Completed {
@@ -114,12 +136,17 @@ impl Workspace {
                 if self.model.job == ticket {
                     self.model.finish_job();
                     self.model.select(document);
+                    self.model.mode = Mode::Box;
+                    self.inspector_open = true;
                     self.model.notice =
                         "Document created. Set dimensions and preview your first Box.".into();
                 }
             }
             Event::Completed { ticket, message } => {
                 if self.model.job == ticket {
+                    if self.model.job_label == "Committing model" {
+                        self.inspector_open = false;
+                    }
                     self.model.finish_job();
                     if self.reconciliation_job.take() != Some(ticket) {
                         self.model.notice = message;
@@ -262,88 +289,18 @@ impl Workspace {
             height: self.viewport_size[1],
         })
     }
-    fn documents(&mut self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
-        ui.add_space(10.);
-        ui.label(RichText::new("WORKSPACE").size(11.).color(MUTED));
-        ui.add_space(5.);
-        ui.heading("Documents");
-        ui.add_space(14.);
-        let rows: Vec<_> = self
-            .model
-            .documents
-            .iter()
-            .map(|d| (d.document.clone(), d.revision, d.data.empty, d.data.faces))
-            .collect();
-        if rows.is_empty() {
-            ui.label(RichText::new("No documents yet").color(MUTED));
-            ui.label(
-                RichText::new("Create a document or connect\nan Agent to this workspace.")
-                    .size(12.)
-                    .color(MUTED),
-            );
-        }
-        egui::ScrollArea::vertical()
-            .id_salt("document-scroll")
-            .max_height((ui.available_height() - 110.).max(100.))
-            .show(ui, |ui| {
-                for (index, (id, revision, empty, faces)) in rows.iter().enumerate() {
-                    let selected = self.model.active.as_ref() == Some(id);
-                    if ui
-                        .add_enabled(
-                            !self.model.busy || self.model.preview.is_some(),
-                            egui::Button::selectable(
-                                selected,
-                                format!("Document {:02}", index + 1),
-                            )
-                            .min_size(Vec2::new(180., 32.)),
-                        )
-                        .clicked()
-                    {
-                        self.model.select(id.clone());
-                        actions.push(Action::Select(id.clone()));
-                    }
-                    if selected {
-                        ui.indent(id.as_str(), |ui| {
-                            ui.label(
-                                RichText::new(if *empty {
-                                    "Empty document".into()
-                                } else {
-                                    format!("Body  /  {} faces", faces.unwrap_or(0))
-                                })
-                                .color(MUTED)
-                                .size(12.),
-                            );
-                            ui.label(
-                                RichText::new(format!("Revision {}", revision.get()))
-                                    .color(MUTED)
-                                    .size(11.),
-                            );
-                        });
-                    }
-                    ui.add_space(7.);
-                }
-            });
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT),|ui|{ui.label(RichText::new("Shared with your Agent.\nClosing this window keeps\nthe service and documents alive.").color(MUTED).size(11.));ui.separator();});
-    }
     fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, actions: &mut Vec<Action>) {
-        ui.add_space(10.);
-        ui.label(RichText::new("MODELING").size(11.).color(MUTED));
-        ui.add_space(5.);
-        ui.heading("Shape tools");
-        ui.add_space(14.);
-        ui.horizontal(|ui| {
-            for (mode, label) in [(Mode::Box, "Box"), (Mode::Fillet, "Fillet")] {
-                if ui
-                    .selectable_label(self.model.mode == mode, label)
-                    .clicked()
-                    && self.model.mode != mode
-                {
-                    self.model.mode = mode;
-                    self.model.draft_changed();
-                }
-            }
-        });
-        ui.separator();
+        ui.label(
+            RichText::new(match self.model.mode {
+                Mode::Box => "Box",
+                Mode::Fillet => "Fillet",
+            })
+            .size(19.)
+            .strong(),
+        );
+        ui.label(RichText::new("FEATURE PARAMETERS").size(10.).color(MUTED));
+        ui.add_space(12.);
+        let mut fields_valid = true;
         match self.model.mode {
             Mode::Box => {
                 ui.label(RichText::new("Box dimensions").strong());
@@ -355,16 +312,25 @@ impl Workspace {
                 ui.add_space(6.);
                 for (i, name) in ["Width", "Depth", "Height"].iter().enumerate() {
                     ui.horizontal(|ui| {
-                        ui.add_sized([76., 28.], egui::Label::new(*name));
-                        let response = ui.add(
-                            egui::DragValue::new(&mut self.model.size[i])
-                                .speed(0.1)
-                                .range(0.01..=10000.)
-                                .suffix(" mm"),
+                        ui.add_sized([64., 38.], egui::Label::new(*name));
+                        let response = ui.add_sized(
+                            [105., 38.],
+                            egui::TextEdit::singleline(&mut self.size_text[i]),
                         );
+                        self.geometry
+                            .record(["width", "depth", "height"][i], &response, true);
+                        let value = self.size_text[i]
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|v| v.is_finite() && (0.01..=10000.).contains(v));
+                        fields_valid &= value.is_some();
                         if response.changed() {
-                            self.model.draft_changed();
+                            if let Some(value) = value {
+                                self.model.size[i] = value;
+                                self.model.draft_changed();
+                            }
                         }
+                        ui.label("mm");
                     });
                 }
             }
@@ -378,17 +344,24 @@ impl Workspace {
                 ui.add_space(8.);
                 ui.horizontal(|ui| {
                     ui.label("Radius");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.model.radius)
-                                .speed(0.1)
-                                .range(0.001..=10000.)
-                                .suffix(" mm"),
-                        )
-                        .changed()
-                    {
-                        self.model.draft_changed();
+                    let response = ui.add_sized(
+                        [105., 38.],
+                        egui::TextEdit::singleline(&mut self.radius_text),
+                    );
+                    self.geometry.record("radius", &response, true);
+                    let value = self
+                        .radius_text
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|v| v.is_finite() && (0.001..=10000.).contains(v));
+                    fields_valid = value.is_some();
+                    if response.changed() {
+                        if let Some(value) = value {
+                            self.model.radius = value;
+                            self.model.draft_changed();
+                        }
                     }
+                    ui.label("mm");
                 });
                 ui.label(
                     RichText::new(if self.model.selection.is_some() {
@@ -405,15 +378,18 @@ impl Workspace {
             }
         }
         ui.add_space(15.);
-        let preview_enabled = self.model.can_edit()
+        if !fields_valid {
+            ui.colored_label(SELECTED, "Enter a positive dimension in mm.");
+        }
+        let preview_enabled = fields_valid
+            && self.model.can_edit()
             && (self.model.mode == Mode::Box || self.model.selection.is_some());
-        if ui
-            .add_enabled(
-                preview_enabled,
-                egui::Button::new("Preview shape").min_size(Vec2::new(238., 35.)),
-            )
-            .clicked()
-        {
+        let response = ui.add_enabled(
+            preview_enabled,
+            egui::Button::new("Preview shape").min_size(Vec2::new(ui.available_width(), 40.)),
+        );
+        self.geometry.record("preview", &response, preview_enabled);
+        if response.clicked() {
             if let Some((ticket, command)) = self.model.begin_preview() {
                 actions.push(Action::Preview { ticket, command });
             }
@@ -422,15 +398,15 @@ impl Workspace {
             let ready = self.model.preview.as_ref().is_some_and(|p| p.ready)
                 && self.model.can_edit()
                 && self.frame_current();
-            if ui
-                .add_enabled(
-                    ready,
-                    egui::Button::new(RichText::new("Confirm").color(Color32::from_rgb(8, 30, 30)))
-                        .fill(ACCENT)
-                        .min_size(Vec2::new(113., 34.)),
-                )
-                .clicked()
-            {
+            let width = (ui.available_width() - ui.spacing().item_spacing.x) / 2.;
+            let response = ui.add_enabled(
+                ready,
+                egui::Button::new(RichText::new("Confirm").color(Color32::from_rgb(8, 30, 30)))
+                    .fill(ACCENT)
+                    .min_size(Vec2::new(width, 40.)),
+            );
+            self.geometry.record("confirm", &response, ready);
+            if response.clicked() {
                 if let Some(command) = self.model.confirm() {
                     actions.push(Action::Execute {
                         ticket: self.model.job,
@@ -439,13 +415,13 @@ impl Workspace {
                     });
                 }
             }
-            if ui
-                .add_enabled(
-                    self.model.preview.is_some(),
-                    egui::Button::new("Cancel").min_size(Vec2::new(113., 34.)),
-                )
-                .clicked()
-            {
+            let enabled = self.model.preview.is_some();
+            let response = ui.add_enabled(
+                enabled,
+                egui::Button::new("Cancel").min_size(Vec2::new(width, 40.)),
+            );
+            self.geometry.record("cancel", &response, enabled);
+            if response.clicked() {
                 self.model.cancel_preview();
             }
         });
@@ -628,6 +604,7 @@ impl Workspace {
                 if let Some(reference) = pick["reference"].as_str() {
                     self.model.select_edge(reference.into(), pending.revision);
                     self.model.mode = Mode::Fillet;
+                    self.inspector_open = true;
                     self.model.notice =
                         "Edge selected (amber). Preview a fillet or tap another edge.".into();
                 } else if pick["ambiguous"] == true {
@@ -678,6 +655,7 @@ impl Workspace {
             let revision = self.pick_choices.take().unwrap().revision;
             self.model.select_edge(reference.into(), revision);
             self.model.mode = Mode::Fillet;
+            self.inspector_open = true;
             self.model.notice =
                 "Edge selected (amber). Preview a fillet or tap another edge.".into();
         }
@@ -728,6 +706,7 @@ impl Workspace {
                                 })
                                 .unwrap_or_else(|| format!("{} · Edge", i + 1));
                             let response = ui.add_sized([320., 40.], egui::Button::new(label));
+                            self.geometry.record(format!("choice-{i}"), &response, true);
                             if response.hovered() {
                                 hovered = Some(reference.clone());
                             }
@@ -772,6 +751,32 @@ impl Workspace {
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
+        self.geometry.viewport = [rect.min.x, rect.min.y, rect.width(), rect.height()];
+        let multi = ctx.input(|i| i.multi_touch());
+        if let Some(gesture) = multi.filter(|g| rect.contains(g.start_pos) || self.multi_active) {
+            self.multi_active = true;
+            self.touch_guard = true;
+            let before = self.model.camera;
+            self.model.camera.zoom_at(
+                gesture.zoom_delta as f64,
+                [
+                    (gesture.center_pos.x - rect.left()) as f64 / rect.width() as f64,
+                    (gesture.center_pos.y - rect.top()) as f64 / rect.height() as f64,
+                ],
+            );
+            self.model.camera.pan_by(
+                [
+                    gesture.translation_delta.x as f64,
+                    gesture.translation_delta.y as f64,
+                ],
+                [rect.width() as f64, rect.height() as f64],
+            );
+            if self.model.camera != before {
+                self.model.view_changed();
+            }
+        }
+        let gesture_guard = self.touch_guard;
+
         for x in (rect.left() as i32..rect.right() as i32).step_by(32) {
             painter.line_segment(
                 [
@@ -790,25 +795,24 @@ impl Workspace {
                 egui::Stroke::new(0.5, Color32::from_rgb(226, 232, 237)),
             );
         }
+        let factor = (768. / rect.width().max(rect.height()).max(1.)).min(1.);
         let size = [
-            rect.width().round().clamp(64., 768.) as u32,
-            rect.height().round().clamp(64., 768.) as u32,
+            (rect.width() * factor).round().clamp(64., 768.) as u32,
+            (rect.height() * factor).round().clamp(64., 768.) as u32,
         ];
         if self.viewport_size != size {
             self.viewport_size = size;
             self.model.view_changed();
         }
-        if response.dragged() && ctx.input(|i| i.pointer.delta() != Vec2::ZERO) {
+        if !gesture_guard && response.dragged() && ctx.input(|i| i.pointer.delta() != Vec2::ZERO) {
             let delta = ctx.input(|i| i.pointer.delta());
             if ctx.input(|i| i.modifiers.shift)
                 || response.dragged_by(egui::PointerButton::Secondary)
             {
-                self.model.camera.pan[0] = (self.model.camera.pan[0]
-                    + delta.x as f64 / rect.width() as f64)
-                    .clamp(-0.6, 0.6);
-                self.model.camera.pan[1] = (self.model.camera.pan[1]
-                    + delta.y as f64 / rect.height() as f64)
-                    .clamp(-0.6, 0.6);
+                self.model.camera.pan_by(
+                    [delta.x as f64, delta.y as f64],
+                    [rect.width() as f64, rect.height() as f64],
+                );
             } else {
                 self.model.camera.orbit(
                     [delta.x as f64, delta.y as f64],
@@ -817,16 +821,22 @@ impl Workspace {
             }
             self.model.view_changed();
         }
-        if response.hovered() {
+        if response.hovered() && !gesture_guard {
             let scroll = ctx.input(|i| i.smooth_scroll_delta.y);
             if scroll.abs() > 0.01 {
-                self.model.camera.zoom =
-                    (self.model.camera.zoom * (scroll as f64 * 0.002).exp()).clamp(0.35, 3.5);
+                let pos = response.hover_pos().unwrap_or(rect.center());
+                self.model.camera.zoom_at(
+                    (scroll as f64 * 0.002).exp(),
+                    [
+                        (pos.x - rect.left()) as f64 / rect.width() as f64,
+                        (pos.y - rect.top()) as f64 / rect.height() as f64,
+                    ],
+                );
                 self.model.view_changed();
             }
         }
-        if response.double_clicked() {
-            self.model.camera = cad_render::Camera::default();
+        if response.double_clicked() && !gesture_guard {
+            self.model.camera.fit();
             self.model.view_changed();
         }
         let can_pick = self.model.preview.is_none() && !self.model.busy && self.model.connected;
@@ -842,7 +852,7 @@ impl Workspace {
                     )
                 })
         });
-        if response.clicked() && can_pick {
+        if response.clicked() && can_pick && !gesture_guard {
             // Touch release can already have removed hover_pos; the interaction owns its
             // release position independently of hover state.
             if let (Some(pos), Some(document)) =
@@ -877,7 +887,12 @@ impl Workspace {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
         self.model.hover = None;
-        if response.hovered() && !response.dragged() && can_pick && self.frame_current() {
+        if response.hovered()
+            && !response.dragged()
+            && !gesture_guard
+            && can_pick
+            && self.frame_current()
+        {
             if let (Some(pos), Some(frame)) = (response.hover_pos(), &self.frame) {
                 let point = [
                     (pos.x - rect.left()) as f64 / rect.width() as f64
@@ -965,35 +980,28 @@ impl Workspace {
             egui::Align2::LEFT_TOP,
             if self.model.preview.as_ref().is_some_and(|p| p.ready) {
                 "CANDIDATE PREVIEW"
+            } else if self.tree_open {
+                ""
             } else {
                 "ORTHOGRAPHIC VIEW"
             },
             egui::FontId::proportional(11.),
             Color32::from_rgb(97, 117, 133),
         );
-        painter.text(rect.left_bottom()+Vec2::new(20.,-20.),egui::Align2::LEFT_BOTTOM,if self.model.hover.is_some(){"Visible edge · tap/click to select"}else{"Drag model to rotate   ·   Shift/right drag to pan   ·   Scroll to zoom   ·   Double-click to fit"},egui::FontId::proportional(11.),Color32::from_rgb(97,117,133));
-        if self.local_backend.is_some() || self.frame.is_some() {
-            painter.text(
-                rect.right_top() + Vec2::new(-20., 22.),
-                egui::Align2::RIGHT_TOP,
-                if let Some(backend) = &self.local_backend {
-                    format!("Client GPU · {backend}")
-                } else if let Some(frame) = &self.frame {
-                    format!(
-                        "{} · {}",
-                        frame.metadata["backend"].as_str().unwrap_or("unknown"),
-                        frame.metadata["render_id"]
-                            .as_str()
-                            .unwrap_or("")
-                            .get(..8)
-                            .unwrap_or("")
-                    )
-                } else {
-                    String::new()
-                },
-                egui::FontId::proportional(11.),
-                Color32::from_rgb(97, 117, 133),
-            );
+        painter.text(
+            rect.left_bottom() + Vec2::new(20., -20.),
+            egui::Align2::LEFT_BOTTOM,
+            if self.model.hover.is_some() {
+                "Visible edge · tap/click to select"
+            } else {
+                "One finger: rotate   ·   Two fingers: zoom / pan   ·   Fit: center model"
+            },
+            egui::FontId::proportional(11.),
+            Color32::from_rgb(97, 117, 133),
+        );
+        if !ctx.input(|i| i.any_touches()) {
+            self.multi_active = false;
+            self.touch_guard = false;
         }
         let origin = rect.right_bottom() - Vec2::new(42., 42.);
         for (axis, label, color) in [
@@ -1013,167 +1021,459 @@ impl Workspace {
             );
         }
     }
+    fn export(&mut self, actions: &mut Vec<Action>) {
+        let Some(document) = self
+            .model
+            .current()
+            .filter(|d| !d.data.empty)
+            .map(|d| d.document.clone())
+        else {
+            return;
+        };
+        let ticket = self.model.begin_job("Exporting SMB");
+        if self.browser_downloads {
+            actions.push(Action::DownloadNative { ticket, document });
+        } else {
+            actions.push(Action::Execute {
+                ticket,
+                command: Command::ExportNative {
+                    document,
+                    path: self.model.export_path.clone(),
+                },
+                label: "SMB exported".into(),
+            });
+        }
+    }
+    fn model_tree(&mut self, ctx: &egui::Context) {
+        if !self.tree_open || self.model.current().is_none() {
+            return;
+        }
+        let [x, y, w, h] = self.geometry.viewport;
+        let width = 200f32.min((w * 0.38).max(145.));
+        egui::Area::new(egui::Id::new("model-tree-overlay"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(x + 12., y + 12.))
+            .show(ctx, |ui| {
+                ui.set_width(width);
+                egui::Frame::new()
+                    .fill(Color32::from_rgba_unmultiplied(247, 250, 252, 205))
+                    .stroke(egui::Stroke::new(1., Color32::from_black_alpha(25)))
+                    .corner_radius(8)
+                    .inner_margin(10)
+                    .show(ui, |ui| {
+                        ui.visuals_mut().override_text_color = Some(Color32::from_rgb(44, 65, 79));
+                        let response = egui::CollapsingHeader::new("FeatureManager")
+                            .id_salt("model-tree")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                let Some(doc) = self.model.current() else {
+                                    return;
+                                };
+                                let id = doc.document.clone();
+                                let revision = doc.revision;
+                                ui.label(
+                                    RichText::new(format!("Solid body · r{}", revision.get()))
+                                        .strong()
+                                        .color(Color32::from_rgb(44, 65, 79)),
+                                );
+                                ui.label(format!(
+                                    "{} faces · {} edges",
+                                    doc.data.faces.unwrap_or(0),
+                                    doc.data.edges.unwrap_or(0)
+                                ));
+                                egui::ScrollArea::vertical()
+                                    .id_salt("tree-scroll")
+                                    .max_height((h * 0.42).clamp(90., 320.))
+                                    .show(ui, |ui| {
+                                        egui::CollapsingHeader::new("Operations")
+                                            .id_salt("tree-history")
+                                            .default_open(true)
+                                            .show(ui, |ui| {
+                                                let mut boxes = 0;
+                                                let mut fillets = 0;
+                                                for e in self.history.iter().filter(|e| {
+                                                    e.document == id
+                                                        && e.revision.get() <= revision.get()
+                                                }) {
+                                                    let label = match e.command.as_str() {
+                                                        "model.box" => {
+                                                            boxes += 1;
+                                                            format!("Box {boxes}")
+                                                        }
+                                                        "model.fillet" => {
+                                                            fillets += 1;
+                                                            format!("Fillet {fillets}")
+                                                        }
+                                                        "document.undo" => "Undo".into(),
+                                                        "document.redo" => "Redo".into(),
+                                                        _ => continue,
+                                                    };
+                                                    ui.label(format!(
+                                                        "{label} · r{}",
+                                                        e.revision.get()
+                                                    ))
+                                                    .on_hover_text("Committed operation record");
+                                                }
+                                                if self.history_truncated {
+                                                    ui.small("Earlier records unavailable");
+                                                }
+                                                if boxes + fillets == 0 {
+                                                    ui.small("No operation records");
+                                                }
+                                            });
+                                        let tree_scene = self
+                                            .model
+                                            .scene
+                                            .as_ref()
+                                            .filter(|s| s.revision == revision)
+                                            .map(|s| s.scene.clone());
+                                        let edges = tree_scene
+                                            .as_ref()
+                                            .map(|s| s.edges.as_slice())
+                                            .unwrap_or(&[]);
+                                        egui::CollapsingHeader::new(format!(
+                                            "Edges ({})",
+                                            edges.len()
+                                        ))
+                                        .id_salt("tree-edges")
+                                        .show(ui, |ui| {
+                                            for (i, e) in edges.iter().enumerate() {
+                                                let enabled = self.model.can_edit()
+                                                    && self.model.preview.is_none();
+                                                if ui
+                                                    .add_enabled(
+                                                        enabled,
+                                                        egui::Button::selectable(
+                                                            self.model
+                                                                .selection
+                                                                .as_ref()
+                                                                .is_some_and(|s| {
+                                                                    s.reference == e.reference
+                                                                }),
+                                                            format!("Edge {}", i + 1),
+                                                        ),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    self.model.select_edge(
+                                                        e.reference.clone(),
+                                                        revision.get(),
+                                                    );
+                                                    self.model.mode = Mode::Fillet;
+                                                    self.inspector_open = true;
+                                                }
+                                            }
+                                        });
+                                    });
+                            });
+                        self.geometry
+                            .record("tree-header", &response.header_response, true);
+                    });
+            });
+    }
     pub fn show(&mut self, ctx: &egui::Context) -> Vec<Action> {
+        use crate::chrome::{tool, Icon};
         let mut actions = Vec::new();
+        self.geometry = UiGeometry::default();
         egui::TopBottomPanel::top("brand")
-            .exact_height(57.)
+            .exact_height(32.)
             .frame(
                 egui::Frame::new()
                     .fill(Color32::from_rgb(17, 24, 31))
-                    .inner_margin(egui::Margin::symmetric(22, 10)),
+                    .inner_margin(egui::Margin::symmetric(12, 6)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("AI / CAD").strong().size(20.).color(ACCENT));
-                    ui.add_space(24.);
-                    ui.label(RichText::new("MODELING WORKSPACE").size(11.).color(MUTED));
+                    ui.label(RichText::new("AI / CAD").strong().color(ACCENT));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(if self.model.connected {
-                                "SHARED  /  CONNECTED"
-                            } else if self.model.connecting {
-                                "CONNECTING..."
+                                "SHARED / CONNECTED"
                             } else {
                                 "OFFLINE"
                             })
-                            .size(11.)
-                            .color(if self.model.connected {
-                                ACCENT
-                            } else {
-                                Color32::from_rgb(242, 178, 94)
-                            }),
+                            .size(10.)
+                            .color(MUTED),
                         );
                     });
                 });
             });
-        egui::TopBottomPanel::top("toolbar")
-            .exact_height(53.)
+        egui::TopBottomPanel::top("document-tabs")
+            .exact_height(40.)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(25, 32, 40))
+                    .inner_margin(egui::Margin::symmetric(10, 4)),
+            )
+            .show(ctx, |ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("tabs-scroll")
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let docs: Vec<_> = self
+                                .model
+                                .documents
+                                .iter()
+                                .map(|d| d.document.clone())
+                                .collect();
+                            for (i, id) in docs.iter().enumerate() {
+                                let enabled = !self.model.busy || self.model.preview.is_some();
+                                let response = ui.add_enabled(
+                                    enabled,
+                                    egui::Button::selectable(
+                                        self.model.active.as_ref() == Some(id),
+                                        format!("Document {:02}", i + 1),
+                                    )
+                                    .min_size(Vec2::new(122., 30.)),
+                                );
+                                self.geometry
+                                    .record(format!("document-{i}"), &response, enabled);
+                                if response.clicked() {
+                                    self.model.select(id.clone());
+                                    self.inspector_open = false;
+                                    actions.push(Action::Select(id.clone()));
+                                }
+                            }
+                            let enabled = self.model.connected
+                                && !self.model.busy
+                                && self.model.unknown.is_none();
+                            let response = ui
+                                .add_enabled(
+                                    enabled,
+                                    egui::Button::new("+").min_size(Vec2::new(38., 30.)),
+                                )
+                                .on_hover_text("New document");
+                            self.geometry.record("new-document", &response, enabled);
+                            if response.clicked() {
+                                let ticket = self.model.begin_job("Creating document");
+                                actions.push(Action::NewDocument { ticket });
+                            }
+                        });
+                    });
+            });
+        egui::TopBottomPanel::top("command-ribbon")
+            .exact_height(76.)
             .frame(
                 egui::Frame::new()
                     .fill(Color32::from_rgb(30, 39, 49))
-                    .inner_margin(egui::Margin::symmetric(16, 7)),
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            self.model.connected
-                                && !self.model.busy
-                                && self.model.unknown.is_none(),
-                            egui::Button::new("+  New document"),
-                        )
-                        .clicked()
-                    {
-                        let ticket = self.model.begin_job("Creating document");
-                        actions.push(Action::NewDocument { ticket });
-                    }
-                    ui.separator();
-                    let history = self
-                        .model
-                        .scene
-                        .as_ref()
-                        .filter(|s| {
-                            self.model
-                                .current()
-                                .is_some_and(|d| d.revision == s.revision)
-                        })
-                        .map(|s| (s.scene.can_undo, s.scene.can_redo))
-                        .unwrap_or((false, false));
-                    for (label, can, redo) in
-                        [("Undo", history.0, false), ("Redo", history.1, true)]
-                    {
-                        if ui
-                            .add_enabled(
-                                self.model.can_edit() && self.model.preview.is_none() && can,
-                                egui::Button::new(label),
-                            )
-                            .clicked()
-                        {
-                            let d = self.model.current().unwrap();
-                            let command = if redo {
-                                Command::Redo {
-                                    document: d.document.clone(),
-                                    revision: d.revision,
+                egui::ScrollArea::horizontal()
+                    .id_salt("ribbon-scroll")
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.x = 2.;
+                        ui.horizontal(|ui| {
+                            for (mode, icon, name, label) in [
+                                (Mode::Box, Icon::Box, "box", "Box"),
+                                (Mode::Fillet, Icon::Fillet, "fillet", "Fillet"),
+                            ] {
+                                let enabled = self.model.current().is_some() && !self.model.busy;
+                                let response = tool(
+                                    ui,
+                                    icon,
+                                    label,
+                                    self.inspector_open && self.model.mode == mode,
+                                    enabled,
+                                );
+                                self.geometry.record(name, &response, enabled);
+                                if response.clicked() && enabled {
+                                    if self.model.mode != mode {
+                                        self.model.mode = mode;
+                                        self.model.draft_changed();
+                                    }
+                                    self.inspector_open = true;
                                 }
-                            } else {
-                                Command::Undo {
-                                    document: d.document.clone(),
-                                    revision: d.revision,
+                            }
+                            for (icon, name, label, active) in [
+                                (
+                                    Icon::Parameters,
+                                    "parameters",
+                                    "Params",
+                                    self.inspector_open,
+                                ),
+                                (Icon::Tree, "tree", "Tree", self.tree_open),
+                            ] {
+                                let response = tool(ui, icon, label, active, true);
+                                self.geometry.record(name, &response, true);
+                                if response.clicked() {
+                                    if name == "tree" {
+                                        self.tree_open = !self.tree_open;
+                                    } else {
+                                        self.inspector_open = !self.inspector_open;
+                                    }
                                 }
-                            };
-                            let ticket = self.model.begin_job(label);
-                            actions.push(Action::Execute {
-                                ticket,
-                                command,
-                                label: label.into(),
-                            });
-                        }
-                    }
-                    ui.separator();
-                    if ui
-                        .add_enabled(!self.model.busy, egui::Button::new("Refresh"))
-                        .clicked()
-                    {
-                        let ticket = self.model.begin_job("Refreshing");
-                        actions.push(Action::Refresh { ticket });
-                    }
-                    if ui
-                        .add_enabled(!self.model.busy, egui::Button::new("Reconnect"))
-                        .clicked()
-                    {
-                        let ticket = self.model.begin_job("Reconnecting");
-                        self.model.connecting = true;
-                        actions.push(Action::Reconnect { ticket });
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new("mm  /  ORTHOGRAPHIC").size(11.).color(MUTED));
+                            }
+                            ui.separator();
+                            for (icon, name, label) in [
+                                (Icon::Plus, "zoom-in", "Zoom +"),
+                                (Icon::Minus, "zoom-out", "Zoom −"),
+                                (Icon::Fit, "fit", "Fit"),
+                            ] {
+                                let response = tool(ui, icon, label, false, true);
+                                self.geometry.record(name, &response, true);
+                                if response.clicked() {
+                                    if name == "fit" {
+                                        self.model.camera.fit();
+                                    } else {
+                                        self.model.camera.zoom_at(
+                                            if name == "zoom-in" { 1.25 } else { 0.8 },
+                                            [0.5, 0.5],
+                                        );
+                                    }
+                                    self.model.view_changed();
+                                }
+                            }
+                            ui.separator();
+                            let history = self
+                                .model
+                                .scene
+                                .as_ref()
+                                .filter(|s| {
+                                    self.model
+                                        .current()
+                                        .is_some_and(|d| d.revision == s.revision)
+                                })
+                                .map(|s| (s.scene.can_undo, s.scene.can_redo))
+                                .unwrap_or((false, false));
+                            for (icon, name, label, available, redo) in [
+                                (Icon::Undo, "undo", "Undo", history.0, false),
+                                (Icon::Redo, "redo", "Redo", history.1, true),
+                            ] {
+                                let enabled = available
+                                    && self.model.can_edit()
+                                    && self.model.preview.is_none();
+                                let response = tool(ui, icon, label, false, enabled);
+                                self.geometry.record(name, &response, enabled);
+                                if response.clicked() && enabled {
+                                    let d = self.model.current().unwrap();
+                                    let command = if redo {
+                                        Command::Redo {
+                                            document: d.document.clone(),
+                                            revision: d.revision,
+                                        }
+                                    } else {
+                                        Command::Undo {
+                                            document: d.document.clone(),
+                                            revision: d.revision,
+                                        }
+                                    };
+                                    let ticket = self.model.begin_job(label);
+                                    actions.push(Action::Execute {
+                                        ticket,
+                                        command,
+                                        label: label.into(),
+                                    });
+                                }
+                            }
+                            for (icon, name, label) in [
+                                (Icon::Refresh, "refresh", "Refresh"),
+                                (Icon::Connect, "reconnect", "Connect"),
+                                (Icon::Download, "download", "SMB"),
+                            ] {
+                                let enabled = !self.model.busy
+                                    && (name != "download"
+                                        || self.model.can_edit()
+                                            && self.model.current().is_some_and(|d| !d.data.empty));
+                                let response = tool(ui, icon, label, false, enabled);
+                                self.geometry.record(name, &response, enabled);
+                                if response.clicked() && enabled {
+                                    match name {
+                                        "download" => self.export(&mut actions),
+                                        "refresh" => {
+                                            let ticket = self.model.begin_job("Refreshing");
+                                            actions.push(Action::Refresh { ticket });
+                                        }
+                                        _ => {
+                                            let ticket = self.model.begin_job("Reconnecting");
+                                            self.model.connecting = true;
+                                            actions.push(Action::Reconnect { ticket });
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     });
-                });
             });
         egui::TopBottomPanel::bottom("status")
-            .exact_height(38.)
+            .exact_height(28.)
             .frame(
                 egui::Frame::new()
                     .fill(Color32::from_rgb(17, 24, 31))
-                    .inner_margin(egui::Margin::symmetric(16, 9)),
+                    .inner_margin(egui::Margin::symmetric(10, 5)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if self.model.busy {
                         ui.spinner();
-                        ui.label(&self.model.job_label);
-                    } else {
-                        ui.label(RichText::new(&self.model.notice).size(12.).color(MUTED));
                     }
+                    let text = self.model.error.as_deref().unwrap_or(&self.model.notice);
+                    ui.add(
+                        egui::Label::new(RichText::new(text).size(11.).color(
+                            if self.model.error.is_some() {
+                                SELECTED
+                            } else {
+                                MUTED
+                            },
+                        ))
+                        .truncate(),
+                    )
+                    .on_hover_text(text);
                 });
             });
-        egui::SidePanel::left("documents")
-            .exact_width(218.)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(25, 32, 40))
-                    .inner_margin(16),
-            )
-            .show(ctx, |ui| self.documents(ui, &mut actions));
-        egui::SidePanel::right("properties")
-            .exact_width(282.)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(25, 32, 40))
-                    .inner_margin(20),
-            )
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("properties-scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.properties(ui, ctx, &mut actions));
-            });
+        if self.inspector_open {
+            let width = if ctx.content_rect().width() < 900. {
+                242.
+            } else {
+                274.
+            };
+            egui::SidePanel::left("parameters")
+                .exact_width(width)
+                .resizable(false)
+                .frame(
+                    egui::Frame::new()
+                        .fill(Color32::from_rgb(25, 32, 40))
+                        .inner_margin(14),
+                )
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("PropertyManager").size(11.).color(MUTED));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let r = ui.button("×").on_hover_text("Close parameters");
+                            self.geometry.record("close-parameters", &r, true);
+                            if r.clicked() {
+                                self.inspector_open = false;
+                            }
+                        });
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .id_salt("properties-scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| self.properties(ui, ctx, &mut actions));
+                });
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(CANVAS).inner_margin(0))
             .show(ctx, |ui| self.viewport(ui, ctx));
+        self.model_tree(ctx);
         self.edge_choices(ctx);
+        self.geometry.parameters_open = self.inspector_open;
+        self.geometry.tree_open = self.tree_open;
+        self.geometry.scale = ctx.zoom_factor();
+        self.geometry.selected = self.model.selection.as_ref().map(|s| s.reference.clone());
+        self.geometry.document = self.model.active.as_ref().map(|d| d.as_str().to_owned());
+        self.geometry.camera = self.model.camera;
+        self.geometry.view_epoch = self.model.view_epoch;
+        self.geometry.history_entries = self
+            .history
+            .iter()
+            .filter(|e| self.model.active.as_ref() == Some(&e.document))
+            .count();
+        self.geometry.preview = self.model.preview.is_some();
+        self.geometry.frame_current = self.frame_current();
+        self.geometry.connected = self.model.connected;
+        self.geometry.uncertain = self.model.unknown.is_some();
         actions
     }
 }
@@ -1306,5 +1606,40 @@ mod picking_tests {
         w.model.view_changed();
         w.choose_edge("edge");
         assert!(w.model.selection.is_none());
+    }
+    #[test]
+    fn portrait_layout_reserves_viewport_and_keeps_parameters_on_the_left() {
+        for size in [[768., 1024.], [820., 1180.], [1280., 820.]] {
+            let (mut w, _, ctx) = workspace();
+            w.pending_pick = None;
+            let input = || egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(size[0], size[1]),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run(input(), |ctx| {
+                w.show(ctx);
+            });
+            assert!((w.geometry.viewport[2] - size[0]).abs() < 2.);
+            assert!(w.geometry.viewport[3] > size[1] * 0.75);
+            assert!(w.geometry.controls["box"].rect[1] < w.geometry.viewport[1]);
+            let ratio = w.geometry.viewport[2] / w.geometry.viewport[3];
+            assert!((w.viewport_size[0] as f32 / w.viewport_size[1] as f32 - ratio).abs() < 0.003);
+            w.inspector_open = true;
+            let _ = ctx.run(input(), |ctx| {
+                w.show(ctx);
+            });
+            assert!(w.geometry.viewport[2] > size[0] * 0.65);
+            for key in ["width", "depth", "height", "preview", "confirm", "cancel"] {
+                let r = w.geometry.controls[key].rect;
+                assert!(
+                    r[0] + r[2] <= w.geometry.viewport[0] + 1.,
+                    "{key}: {r:?}, {:?}",
+                    w.geometry.viewport
+                );
+            }
+        }
     }
 }

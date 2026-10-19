@@ -61,29 +61,29 @@ class Smoke:
         time.sleep(1.5)
         assert self.ui('state')['alive']
         self.shot('01-empty')
-        self.ui('click',x=80,y=78)
+        self.ui('control',name='new-document')
         end=time.monotonic()+8
         while not self.documents():assert time.monotonic()<end;time.sleep(.1)
         doc=self.state()['document'];service=self.cli({'op':'service.info'})['result']['service_id']
-        self.ui('click',x=1120,y=480)
+        self.ui('control',name='preview')
         assert self.blue_count(self.shot('02-box-preview'))>1000
         assert self.state()['data']['empty'] and self.state()['revision']==0
-        self.ui('click',x=1194,y=524)
+        self.ui('control',name='cancel')
         assert self.blue_count(self.shot('03-cancelled'))<1000
         assert self.state()['revision']==0
-        self.ui('click',x=1120,y=480);self.shot('04-ready-to-confirm')
-        self.ui('click',x=1070,y=524);assert self.wait_revision(1)['data']['volume']==1000
-        self.ui('click',x=1070,y=524);assert self.state()['revision']==1 # No second history step.
+        self.ui('control',name='preview');self.shot('04-ready-to-confirm')
+        self.ui('control',name='confirm');assert self.wait_revision(1)['data']['volume']==1000
+        assert 'confirm' not in self.ui('layout')['controls'];assert self.state()['revision']==1 # Closed command cannot commit twice.
         self.wait_view(False,1)
-        self.ui('click',x=608,y=555);self.shot('05-selected-edge')
+        v=self.ui('layout')['viewport'];self.ui('click',x=round(v[0]+v[2]*.5),y=round(v[1]+v[3]*.65));self.shot('05-selected-edge')
         self.mcp=subprocess.Popen([str(BIN/'cad-mcp'),'--runtime-dir',self.runtime,'--client-id','native-smoke-agent'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         assert 'result' in self.rpc('initialize',dict(protocolVersion='2025-11-25',capabilities={},clientInfo={'name':'native-smoke','version':'1'}))
         self.mcp.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');self.mcp.stdin.flush()
         assert self.tool(dict(op='document.state',document=doc))['result']['revision']==1
         missing=self.tool(dict(op='model.fillet',document=doc,revision=1,radius=1))
         assert not missing['ok'] and missing['error']['kind']=='invalid_params' # GUI selection is private.
-        self.ui('click',x=1120,y=424);self.shot('06-fillet-preview');assert self.state()['revision']==1
-        self.ui('click',x=1070,y=469);fillet=self.wait_revision(2)
+        self.ui('control',name='preview');self.shot('06-fillet-preview');assert self.state()['revision']==1
+        self.ui('control',name='confirm');fillet=self.wait_revision(2)
         assert fillet['data']['valid'] and abs(fillet['data']['volume']-997.8539818)<1e-4
         self.shot('07-fillet-committed')
         before=self.shot('08-before-orbit');cursor=self.cli({'op':'service.snapshot'})['result']['cursor']
@@ -92,11 +92,11 @@ class Smoke:
         assert hashlib.sha256(self.pixels(before)).digest()!=hashlib.sha256(self.pixels(after)).digest()
         assert self.state()['revision']==2
         assert self.cli({'op':'service.events','after':cursor})['result']['events']==[]
-        self.ui('click',x=195,y=78);assert self.wait_revision(3)['data']['volume']==1000
-        self.ui('click',x=265,y=78);assert self.wait_revision(4)['data']['volume']<1000
-        self.ui('click',x=1040,y=228);self.ui('click',x=1120,y=480);self.shot('10-before-agent-edit')
+        self.ui('control',name='undo');assert self.wait_revision(3)['data']['volume']==1000
+        self.ui('control',name='redo');assert self.wait_revision(4)['data']['volume']<1000
+        self.ui('control',name='box');self.ui('control',name='preview');self.shot('10-before-agent-edit')
         changed=self.tool(dict(op='model.box',document=doc,revision=4,size=[12,10,10]));assert changed['ok']
-        self.shot('11-stale-preview');self.ui('click',x=1070,y=524);assert self.state()['revision']==5
+        self.shot('11-stale-preview');self.ui('control',name='confirm',allow_disabled=True);assert self.state()['revision']==5
         assert self.state()['data']['volume']==1200
         self.ui('stop-gui')
         assert self.state()['revision']==5 # Native window close leaves the shared service alive.

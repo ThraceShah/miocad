@@ -2,9 +2,12 @@
 mod controller;
 mod model;
 pub use controller::*;
+mod chrome;
+mod geometry;
 pub mod local_view;
 mod widgets;
 use cad_protocol::*;
+pub use geometry::*;
 pub use model::*;
 use std::sync::Arc;
 pub use widgets::*;
@@ -41,6 +44,10 @@ pub struct Failure {
     pub request: Option<Box<Request>>,
 }
 pub enum Event {
+    History {
+        events: Vec<cad_protocol::Event>,
+        truncated: bool,
+    },
     Download {
         ticket: u64,
         bytes: Vec<u8>,

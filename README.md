@@ -144,3 +144,6 @@ headless wgpu 的 depth/Face ID/Edge ID 与 CPU fallback 已实际验证，渲�
 `CAD_ENABLE_WEB_TESTS=ON` 时，`web_touch_and_picking` 在独立临时服务中回归触摸方向、九条可见边、旋转后的拾取、高亮像素及延迟帧。详细命令和边界见 [视口验证](docs/viewport-p7.md)。
 
 对于微小倒圆后落在同一像素上的多条边，点击会弹出候选列表，支持触屏或数字键分别选择。`web_micro_fillet_picking` 固化此场景，样本和运行方式见视口验证文档。
+
+
+平板工作区采用文档标签、顶部图标栏、可收起的左侧参数区和透明模型树。单指旋转、双指捏合缩放/移动平移；工具栏另有 Zoom ± 和 Fit。竖屏不再保留两侧常驻栏。操作与固化测试见 [平板布局](docs/tablet-ui.md)。
