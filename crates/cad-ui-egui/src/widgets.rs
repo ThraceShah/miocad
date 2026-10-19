@@ -12,6 +12,12 @@ struct PendingPick {
     radius: [f64; 2],
     deadline: f64,
 }
+struct PickChoices {
+    document: DocumentId,
+    revision: u64,
+    epoch: u64,
+    references: Vec<String>,
+}
 pub struct Workspace {
     pub model: Model,
     pub browser_downloads: bool,
@@ -21,6 +27,8 @@ pub struct Workspace {
     pub cursor: u64,
     reconciliation_job: Option<u64>,
     pending_pick: Option<PendingPick>,
+    pick_choices: Option<PickChoices>,
+    choice_hover: Option<String>,
     texture: Option<egui::TextureHandle>,
     frame: Option<Arc<cad_render::Frame>>,
     frame_epoch: u64,
@@ -40,6 +48,8 @@ impl Default for Workspace {
             cursor: 0,
             reconciliation_job: None,
             pending_pick: None,
+            pick_choices: None,
+            choice_hover: None,
             texture: None,
             frame: None,
             frame_epoch: 0,
@@ -621,8 +631,20 @@ impl Workspace {
                     self.model.notice =
                         "Edge selected (amber). Preview a fillet or tap another edge.".into();
                 } else if pick["ambiguous"] == true {
+                    let references = pick["candidates"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect();
+                    self.pick_choices = Some(PickChoices {
+                        document: pending.document,
+                        revision: pending.revision,
+                        epoch: pending.epoch,
+                        references,
+                    });
                     self.model.notice =
-                        "Several edges meet here. Tap farther along the desired edge.".into();
+                        "Overlapping edges: choose the intended edge from the list.".into();
                 } else {
                     if self.model.selection.take().is_some() {
                         self.model.view_changed();
@@ -630,6 +652,120 @@ impl Workspace {
                     self.model.notice = "No visible edge nearby. Tap closer to an edge.".into();
                 }
             }
+        }
+    }
+    fn choices_current(&self) -> bool {
+        self.pick_choices.as_ref().is_some_and(|p| {
+            self.model.active.as_ref() == Some(&p.document)
+                && self
+                    .model
+                    .current()
+                    .is_some_and(|d| d.revision.get() == p.revision)
+                && self.model.view_epoch == p.epoch
+                && self.model.connected
+                && !self.model.busy
+                && self.model.preview.is_none()
+                && self.frame_current()
+        })
+    }
+    fn choose_edge(&mut self, reference: &str) {
+        if self.choices_current()
+            && self
+                .pick_choices
+                .as_ref()
+                .is_some_and(|p| p.references.iter().any(|r| r == reference))
+        {
+            let revision = self.pick_choices.take().unwrap().revision;
+            self.model.select_edge(reference.into(), revision);
+            self.model.mode = Mode::Fillet;
+            self.model.notice =
+                "Edge selected (amber). Preview a fillet or tap another edge.".into();
+        }
+    }
+    fn edge_choices(&mut self, ctx: &egui::Context) {
+        if !self.choices_current() {
+            self.pick_choices = None;
+            self.choice_hover = None;
+            return;
+        }
+        let refs = self.pick_choices.as_ref().unwrap().references.clone();
+        let mut selected = None;
+        let mut hovered = None;
+        let mut open = true;
+        let mut cancel = false;
+        let position = ctx.content_rect().center() - Vec2::new(170., 130.);
+        egui::Window::new("Choose an edge")
+            .id(egui::Id::new("edge-disambiguation"))
+            .collapsible(false)
+            .resizable(false)
+            .fixed_pos(position)
+            .default_width(340.)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Several edges overlap in this view.");
+                ui.label("Select the intended edge below.");
+                ui.add_space(8.);
+                egui::ScrollArea::vertical()
+                    .id_salt("edge-choice-list")
+                    .max_height(260.)
+                    .show(ui, |ui| {
+                        for (i, reference) in refs.iter().enumerate() {
+                            let edge = self.model.display_scene().and_then(|(s, _)| {
+                                s.scene
+                                    .edges
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, e)| e.reference == *reference)
+                            });
+                            let label = edge
+                                .map(|(index, e)| {
+                                    format!(
+                                        "{} · Edge {} · {:.4} mm",
+                                        i + 1,
+                                        index + 1,
+                                        e.length.get()
+                                    )
+                                })
+                                .unwrap_or_else(|| format!("{} · Edge", i + 1));
+                            let response = ui.add_sized([320., 40.], egui::Button::new(label));
+                            if response.hovered() {
+                                hovered = Some(reference.clone());
+                            }
+                            let key = [
+                                egui::Key::Num1,
+                                egui::Key::Num2,
+                                egui::Key::Num3,
+                                egui::Key::Num4,
+                                egui::Key::Num5,
+                                egui::Key::Num6,
+                                egui::Key::Num7,
+                                egui::Key::Num8,
+                            ]
+                            .get(i);
+                            if response.clicked()
+                                || key.is_some_and(|key| ctx.input(|input| input.key_pressed(*key)))
+                            {
+                                selected = Some(reference.clone());
+                            }
+                        }
+                    });
+                ui.add_space(4.);
+                if ui.button("Cancel (Esc)").clicked()
+                    || ctx.input(|i| i.key_pressed(egui::Key::Escape))
+                {
+                    cancel = true;
+                }
+            });
+        if self.choice_hover != hovered {
+            self.choice_hover = hovered;
+            ctx.request_repaint();
+        }
+        if let Some(reference) = selected {
+            self.choose_edge(&reference);
+            ctx.request_repaint();
+        }
+        if !open || cancel {
+            self.pick_choices = None;
         }
     }
     fn viewport(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -719,6 +855,7 @@ impl Workspace {
                         * self.viewport_size[1] as f64,
                 ];
                 let slop = if touch { 14. } else { 6. };
+                self.pick_choices = None;
                 self.pending_pick = Some(PendingPick {
                     document,
                     revision: self.model.current().map_or(0, |d| d.revision.get()),
@@ -758,6 +895,9 @@ impl Workspace {
                     self.model.hover = pick["reference"].as_str().map(str::to_owned);
                 }
             }
+        }
+        if self.choices_current() {
+            self.model.hover = self.choice_hover.clone();
         }
         let has_scene = self
             .model
@@ -1033,6 +1173,7 @@ impl Workspace {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(CANVAS).inner_margin(0))
             .show(ctx, |ui| self.viewport(ui, ctx));
+        self.edge_choices(ctx);
         actions
     }
 }
@@ -1129,6 +1270,41 @@ mod picking_tests {
         let (mut w, _, _) = workspace();
         w.resolve_pick(11.);
         assert!(w.pending_pick.is_none());
+        assert!(w.model.selection.is_none());
+    }
+    #[test]
+    fn explicit_candidate_choice_is_scoped_and_never_accepts_arbitrary_edges() {
+        for reference in ["edge", "second-edge"] {
+            let (mut w, event, ctx) = workspace();
+            w.apply(event, &ctx);
+            let scene = &mut Arc::make_mut(&mut w.model.scene.as_mut().unwrap().scene).edges;
+            let mut second = scene[0].clone();
+            second.reference = "second-edge".into();
+            scene.push(second);
+            w.pending_pick = None;
+            w.pick_choices = Some(PickChoices {
+                document: w.model.active.clone().unwrap(),
+                revision: 1,
+                epoch: w.model.view_epoch,
+                references: vec!["edge".into(), "second-edge".into()],
+            });
+            w.choose_edge("not-a-candidate");
+            assert!(w.model.selection.is_none());
+            w.choose_edge(reference);
+            assert_eq!(w.model.selection.as_ref().unwrap().reference, reference);
+            assert!(w.pick_choices.is_none());
+        }
+        let (mut w, event, ctx) = workspace();
+        w.apply(event, &ctx);
+        w.pending_pick = None;
+        w.pick_choices = Some(PickChoices {
+            document: w.model.active.clone().unwrap(),
+            revision: 1,
+            epoch: w.model.view_epoch,
+            references: vec!["edge".into()],
+        });
+        w.model.view_changed();
+        w.choose_edge("edge");
         assert!(w.model.selection.is_none());
     }
 }

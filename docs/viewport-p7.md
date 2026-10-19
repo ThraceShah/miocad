@@ -124,3 +124,19 @@ CAD_PLAYWRIGHT=/path/to/playwright ctest --test-dir build -R '^web_touch_and_pic
 ```
 
 测试在独立临时 CAD 服务创建 Box，不访问生产文档。逐条验证九条可见边的 10 CSS px 偏移触摸、琥珀/青色像素及实际 Fillet 预览所引用的 Edge；另验证旋转后的三条边、输入方向、延迟帧到达后的排队选择、状态不提交和页面异常。DPR 2 同时设置测试 Chromium 的原生比例和上下文比例，避免只模拟 JS DPR 时 ResizeObserver 的物理尺寸与实际画布不一致。Rust 回归覆盖视口缩放下的方向一致性、最近边/歧义/遮挡以及过期排队点击的拒绝。证据保存到 `artifacts/interaction-<backend>-<dpr>/`，包含 JSON、PNG 和失败截图。
+
+### 微小倒圆后的重合边消歧（2026-10-19）
+
+Document 1 的反馈揭示了普通 Box 回归未覆盖的情形：10mm Box 的三个正常倒圆与一个半径 0.001mm 的微小倒圆并存；后者视觉近似未倒圆，却产生两条间距低于一个屏幕像素的长切边。CPU/GPU 均保留两个 Edge 候选，原 UI 只提示沿边换位置，因此全长都可能不可选。这不是缺失拓扑，也不能通过放宽深度阈值修复。
+
+歧义命中现打开 `Choose an edge` 候选窗口：只列最近等距候选、显示当前拓扑编号和长度、支持大触屏按钮与数字 1–8 快捷键，悬停青色定位，选中后琥珀色高亮。Esc / Cancel 关闭；相机 epoch、文档、revision、预览、连接或匹配帧变化使候选失效。没有自动选择第一条，没有更改建模状态或放宽遮挡判定。此功能选择的是现有微小倒圆的两条实际切边，并不会把该处恢复成原始直角边。
+
+新增固化回归：
+
+```bash
+CAD_PLAYWRIGHT=/path/to/playwright CAD_BIN=target/release node tests/web_micro_fillet.cjs
+CAD_PLAYWRIGHT=/path/to/playwright CAD_BIN=target/release CAD_TEST_GPU=webgpu node tests/web_micro_fillet.cjs
+CAD_PLAYWRIGHT=/path/to/playwright ctest --test-dir build -R '^web_micro_fillet_picking$' --output-on-failure
+```
+
+浏览器测试在独立临时 SMLib 服务按几何坐标创建四个平行倒圆（半径 1、2、2、0.001mm），分别通过触屏按钮和数字快捷键选中两个不同的实际引用，检查琥珀像素、移动相机后旧候选失效、文档快照不变。CTest 默认 DPR 2；WebGPU 路径单独验证。纯 Rust CPU/GPU 回归使用同样由独立服务生成的 `crates/cad-render/tests/fixtures/micro-fillet.json`，核验长边多处仍同时保留两个候选；样本没有复制生产文档数据。

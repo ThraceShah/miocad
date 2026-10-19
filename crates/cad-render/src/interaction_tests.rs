@@ -65,3 +65,42 @@ fn touch_hit_slop_nearest_junction_ambiguity_and_hidden_edges() {
     }
     assert!(frame.pick_edge_near([f64::NAN, 0.], [14., 14.]).is_err());
 }
+
+#[test]
+fn subpixel_micro_fillet_retains_both_edge_candidates_on_cpu_and_gpu() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../tests/fixtures/micro-fillet.json")).unwrap();
+    let mesh: Mesh = serde_json::from_value(fixture["mesh"].clone()).unwrap();
+    let edges: Vec<Edge> = serde_json::from_value(fixture["edges"].clone()).unwrap();
+    let targets: Vec<String> = serde_json::from_value(fixture["micro_edges"].clone()).unwrap();
+    let camera = Camera {
+        yaw: -0.3,
+        pitch: 0.53,
+        ..Default::default()
+    };
+    let (projection, _) = projection(&mesh, 460, 452, camera, false).unwrap();
+    let target = edges.iter().find(|e| e.reference == targets[0]).unwrap();
+    let mut renderer = Renderer::new();
+    for backend in ["cpu", "gpu"] {
+        let frame = renderer
+            .render(&mesh, &edges, 460, 452, camera, false, backend)
+            .unwrap();
+        for z in [2., 5., 8.] {
+            let p = target.points[0];
+            let point = camera.transform([p[0].get(), p[1].get(), z]);
+            let xy = projection.project(point);
+            let hit = frame.pick_edge_near([xy[0], xy[1]], [14., 14.]).unwrap();
+            assert_eq!(hit["ambiguous"], true, "{backend}: {hit}");
+            for reference in &targets {
+                assert!(
+                    hit["candidates"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|r| r == reference),
+                    "{backend}: {reference}: {hit}"
+                );
+            }
+        }
+    }
+}

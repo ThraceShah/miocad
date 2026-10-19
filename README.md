@@ -142,3 +142,5 @@ headless wgpu 的 depth/Face ID/Edge ID 与 CPU fallback 已实际验证，渲�
 
 触屏交互采用随手指方向旋转；边拾取支持触屏容差、青色悬停和琥珀色加粗选中。
 `CAD_ENABLE_WEB_TESTS=ON` 时，`web_touch_and_picking` 在独立临时服务中回归触摸方向、九条可见边、旋转后的拾取、高亮像素及延迟帧。详细命令和边界见 [视口验证](docs/viewport-p7.md)。
+
+对于微小倒圆后落在同一像素上的多条边，点击会弹出候选列表，支持触屏或数字键分别选择。`web_micro_fillet_picking` 固化此场景，样本和运行方式见视口验证文档。

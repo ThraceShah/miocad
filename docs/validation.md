@@ -498,3 +498,19 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 固化源码：`tests/web_interaction.cjs`、`crates/cad-render/src/interaction_tests.rs`、widgets 内 pending-pick 回归及 CMake 测试登记。运行说明见 `docs/viewport-p7.md`。证据位于 Git 忽略的 `artifacts/interaction-*`、`artifacts/interaction-rust-tests.log`、CTest 日志和 `artifacts/interaction-deployment/`（含部署前后快照）。临时测试服务已关闭。
 
 边界：命中容差并不消除交汇或极细、互相接近的边的歧义，此时提示沿目标边移动；仍按当前可见网格 ID 拾取，不是精确 B-Rep 射线求交。测试覆盖 Box 的所有九条可见边和旋转后的代表边，未声称任意复杂曲面、遮挡情况或所有实体触屏设备已全面认证。代码本地提交，不推送。
+
+## 2026-10-19：Document 1 微小倒圆的重合边无法选择
+
+只读调查生产 Document 1（revision=5，faces=10 / edges=24）确认：三个明显倒圆外，还存在半径 0.001mm 的微小倒圆。该角的两条长切边分别位于 (10,0.001,z) 与 (9.999,0,z)，均长 10mm，引用尾号 edge:7 和 edge:9。在当前缩放下两者小于一个像素，整个中段始终得到相同距离的候选；旧 UI 仅提示换位置，缺少真正的消歧路径。没有缺失拓扑，没有修改 SMLib 或放宽遮挡深度阈值。
+
+修复：在最近候选不可分辨时打开显式选择窗口，过滤距离明显更远的候选，显示拓扑编号/长度。支持大触屏按钮、数字快捷键、青色悬停、选中琥珀色、Esc/Cancel；候选按文档/revision/相机 epoch/连接/预览/匹配帧绑定，状态变化时丢弃，拒绝列表外引用。只选择现有边，不自动撤销微小倒圆或改变模型。
+
+验证通过：
+- Rust workspace 38 项通过。新增独立 SMLib 服务生成的固定样本，CPU/GPU 在 460×452、长边 z=2/5/8 处均同时保留两个微小倒圆切边候选；单元测试验证逐个显式选择、拒绝列表外引用及相机变化后旧候选不可用。
+- native / wasm32 相关 Clippy (`-D warnings`)、fmt、JS 语法、diff 检查通过。
+- 新增 `tests/web_micro_fillet.cjs` 和 CTest `web_micro_fillet_picking`：独立临时服务创建三个普通倒圆 + 0.001mm 微小倒圆，真实浏览器触屏按钮选择第一条、数字键选择第二条，核验两个不同引用和可见琥珀像素，移动相机使旧选择器失效，模型快照不变。WebGL2 DPR 1 / DPR 2、WebGPU DPR 1 通过。
+- CTest 构建 fixture、新微小倒圆回归及原 `web_touch_and_picking` 3/3 通过，总耗时约 82 秒；原九条可见边、旋转后的三条边、排队拾取及高亮继续通过。
+- 发布后在真实 HTTPS 的原始 Document 1 上直接验证，而非仅测试新建 Box：有 558 个像素同时保留 edge:7 / edge:9，候选窗口分别选中二者（界面 Edge 8 / Edge 10），仅发出 `render.scene` 查询，没有建模请求。截图与引用记录于 `artifacts/unpickable-edge/live-*`。
+- 生产状态前后完全相同：文档 revision 5 / 2、valid=true、cursor=9，原 owner PID=673288 未重启。三项持久服务 active，门户 HTTPS 200、miocad online=true；`web_trusted.cjs` 免码访问、刷新、嵌套路由和资源回归通过。
+
+固定几何样本由独立测试服务生成，不含生产文档数据；生成配方及边界见 `docs/viewport-p7.md`。证据、只读调查数据和模型前后快照保存在 Git 忽略的 artifacts 中。此修复提供对现有两条切边的明确选择，不代表恢复原始直角边，也没有执行任何 Undo / Redo / Fillet 提交。所有更改本地 Git 提交，不推送。

@@ -212,8 +212,10 @@ impl Frame {
         } else {
             hits.first().and_then(|(id, _)| self.edge_refs.get(id))
         };
+        let nearest = hits.first().map_or(0., |(_, d)| d.sqrt());
         let candidates: Vec<_> = hits
             .iter()
+            .filter(|(_, d)| !ambiguous || (d.sqrt() - nearest) * rx.min(ry) < 1.)
             .take(8)
             .filter_map(|(id, _)| self.edge_refs.get(id))
             .collect();
