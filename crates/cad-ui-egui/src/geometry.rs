@@ -7,6 +7,7 @@ pub struct ControlGeometry {
 }
 #[derive(Default, Clone, serde::Serialize)]
 pub struct UiGeometry {
+    pub model_error: Option<String>,
     pub agent_open: bool,
     pub agent_draft: String,
     pub references: Vec<cad_agent::Reference>,

@@ -273,6 +273,47 @@ pub enum Command {
         edge: String,
         radius: Finite,
     },
+    #[serde(rename = "feature.list")]
+    Features { document: DocumentId },
+    #[serde(rename = "feature.edit")]
+    FeatureEdit {
+        document: DocumentId,
+        revision: Revision,
+        feature: String,
+        patch: serde_json::Value,
+    },
+    #[serde(rename = "document.history")]
+    History { document: DocumentId },
+    #[serde(rename = "document.recompute")]
+    Recompute {
+        document: DocumentId,
+        revision: Revision,
+    },
+    #[serde(rename = "transaction.begin")]
+    TransactionBegin {
+        document: DocumentId,
+        revision: Revision,
+    },
+    #[serde(rename = "transaction.commit")]
+    TransactionCommit {
+        document: DocumentId,
+        revision: Revision,
+        transaction: String,
+        label: String,
+    },
+    #[serde(rename = "transaction.abort")]
+    TransactionAbort {
+        document: DocumentId,
+        transaction: String,
+    },
+    #[serde(rename = "document.save")]
+    DocumentSave {
+        document: DocumentId,
+        revision: Revision,
+        path: String,
+    },
+    #[serde(rename = "document.open")]
+    DocumentOpen { path: String },
     #[serde(rename = "document.undo")]
     Undo {
         document: DocumentId,
@@ -327,6 +368,12 @@ pub enum ErrorKind {
     OutcomeUnavailable,
     OutcomeUnknown,
     ClientLimit,
+    FeatureNotFound,
+    InvalidDependency,
+    ReferenceUnresolved,
+    ReferenceAmbiguous,
+    RecomputeFailed,
+    TransactionConflict,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteError {
@@ -505,6 +552,10 @@ pub struct Capabilities {
     pub gpu_picking: bool,
     pub persistent_naming: bool,
     pub native_format: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feature_graph: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atomic_transactions: Option<bool>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status")]
@@ -518,10 +569,25 @@ pub enum RequestStatus {
 pub mod service;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Feature {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub dependencies: Vec<String>,
+    pub parameters: Value,
+    pub selector: Value,
+    pub suppressed: bool,
+    pub status: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene {
     pub state: DocumentState,
     pub mesh: Option<Mesh>,
     pub edges: Vec<Edge>,
     pub can_undo: bool,
     pub can_redo: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<Feature>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<Value>,
 }

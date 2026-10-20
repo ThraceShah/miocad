@@ -295,7 +295,14 @@ fn scoped_request(value: Value, grant: &Grant) -> Result<Value, Error> {
         return Err(FORBIDDEN);
     }
     match (&*request.method, &request.command) {
-        ("execute", Some(Command::ExportNative { .. })) => Err(FORBIDDEN),
+        (
+            "execute",
+            Some(
+                Command::ExportNative { .. }
+                | Command::DocumentSave { .. }
+                | Command::DocumentOpen { .. },
+            ),
+        ) => Err(FORBIDDEN),
         ("execute", Some(_)) | ("request.status", None) => Ok(value),
         _ => Err(FORBIDDEN),
     }

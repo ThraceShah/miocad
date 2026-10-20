@@ -135,7 +135,10 @@ async fn shared_lifecycle_replay_events_and_isolation() {
         .await
         .unwrap();
     assert_ne!(fresh.endpoint().service_id, b.endpoint().service_id);
-    assert_eq!(fresh.snapshot().await.unwrap()["documents"], json!([]));
+    let recovered = fresh.snapshot().await.unwrap();
+    assert_eq!(recovered["documents"].as_array().unwrap().len(), 1);
+    assert_eq!(recovered["documents"][0]["revision"], 67);
+    assert_ne!(fresh.context().worker_id, b.context().worker_id);
     fresh.shutdown().await.unwrap();
 }
 
@@ -240,7 +243,12 @@ async fn daemon_crash_releases_lock_but_never_restores_old_identity() {
     let mut a = SharedClient::connect_or_start(&options, "crash-test")
         .await
         .unwrap();
-    assert!(a.execute(Command::DocumentCreate).await.unwrap().ok);
+    let created: CreatedDocument = a
+        .execute(Command::DocumentCreate)
+        .await
+        .unwrap()
+        .result_as()
+        .unwrap();
     let endpoint = a.endpoint().clone();
     let info = SharedClient::control(&endpoint, ServiceRequest::Ping)
         .await
@@ -254,7 +262,12 @@ async fn daemon_crash_releases_lock_but_never_restores_old_identity() {
         .await
         .unwrap();
     assert_ne!(fresh.endpoint().service_id, endpoint.service_id);
-    assert_eq!(fresh.snapshot().await.unwrap()["documents"], json!([]));
+    let recovered = fresh.snapshot().await.unwrap();
+    assert_eq!(recovered["documents"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        recovered["documents"][0]["document"],
+        created.document.as_str()
+    );
     assert!(a.execute(Command::DocumentCreate).await.is_err());
     fresh.shutdown().await.unwrap();
 }

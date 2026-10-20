@@ -22,6 +22,7 @@ Description=AI-CAD shared document service
 After=network-online.target
 [Service]
 ExecStart="$service_release/bin/cad-service" --runtime-dir "$runtime" --worker "$service_release/bin/cad-server"
+Environment=CAD_DOCUMENT_ROOT="$HOME/.local/share/miocad/documents"
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=yes
@@ -56,6 +57,7 @@ Description=AI-CAD shared GPU viewport relay
 After=network-online.target miocad-cad-service.service
 [Service]
 ExecStart="$service_release/bin/cad-service" --relay-runtime-dir "$runtime"
+Environment=CAD_DOCUMENT_ROOT="$HOME/.local/share/miocad/documents"
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=30

@@ -56,6 +56,10 @@ pub struct Failure {
     pub request: Option<Box<Request>>,
 }
 pub enum Event {
+    ViewFailed {
+        epoch: Option<u64>,
+        message: String,
+    },
     AgentReply {
         id: u64,
         result: Result<cad_agent::TaskState, String>,

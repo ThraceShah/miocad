@@ -7,6 +7,7 @@
 #include <SmBrep.h>
 #include <SmPoly.h>
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 namespace cad {
@@ -15,6 +16,7 @@ void check(SmApiStatus s) { if(s != SM_SUCCESS) throw std::runtime_error("SMLib 
 Point point(const SmPoint3d& p) { return {p.x,p.y,p.z}; }
 class SmlibShape final : public Shape {
   std::unique_ptr<SmBrep> body;
+  mutable std::optional<State> cached_state;
 public:
   explicit SmlibShape(SmBrep* p) : body(p) {}
   std::unique_ptr<Shape> clone() const override {
@@ -22,12 +24,14 @@ public:
     auto result=std::make_unique<SmlibShape>(raw); check(s); return result;
   }
   State state() const override {
+    if(cached_state)return *cached_state;
     SmBoolean manifold=FALSE; double volume=0;
     check(SmApiBrepIsManifoldSolid(body.get(),manifold));
     check(SmApiBrepComputeVolume(body.get(),1e-7,volume));
     SmTArray<SmFace*> faces; SmTArray<SmEdge*> edges;
     check(SmApiGetFaces(body.get(),faces)); check(SmApiGetEdges(body.get(),edges));
-    return {volume,faces.GetSize(),edges.GetSize(),bool(manifold && std::isfinite(volume) && volume>0 && body->AssertValid())};
+    cached_state=State{volume,faces.GetSize(),edges.GetSize(),bool(manifold && std::isfinite(volume) && volume>0 && body->AssertValid())};
+    return *cached_state;
   }
   std::vector<Edge> edges() const override {
     SmTArray<SmPoint3d> points; SmTArray<ULONG> counts; SmTArray<SmEdge*> edges;
@@ -41,6 +45,7 @@ public:
     return result;
   }
   void fillet(std::size_t index, double radius) override {
+    cached_state.reset();
     SmTArray<SmEdge*> edges; check(SmApiGetEdges(body.get(),edges));
     if(index>=edges.GetSize()) throw std::invalid_argument("edge does not exist");
     if(!std::isfinite(radius) || radius<=0) throw std::invalid_argument("radius must be positive and finite");
@@ -72,6 +77,12 @@ public:
 class SmlibKernel final : public IKernel {
 public:
   SmlibKernel() { SmApiCreateContext(); }
+  std::unique_ptr<Shape> load_native(const std::string& path) override {
+    SmBrep* raw=nullptr; auto status=SmApiReadBrepFromFile(path.c_str(),TRUE,FALSE,raw);
+    auto result=std::make_unique<SmlibShape>(raw); check(status);
+    if(!raw || !result->state().valid) throw std::runtime_error("invalid saved B-Rep");
+    return result;
+  }
   std::unique_ptr<Shape> box(Point size) override {
     for(double d:size) if(!std::isfinite(d) || d<=0 || d>1e6) throw std::invalid_argument("box dimensions must be finite in (0,1000000] mm");
     SmBrep* raw=nullptr; auto s=SmApiCreateBox(SmVector3d(0,0,0),size[0],size[1],size[2],raw);

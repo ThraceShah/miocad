@@ -1,6 +1,8 @@
 use crate::*;
 #[path = "chat.rs"]
 mod chat;
+#[path = "feature_editor.rs"]
+mod feature_editor;
 use cad_agent::ReferenceKind;
 use egui::{Color32, RichText, Vec2};
 const ACCENT: Color32 = Color32::from_rgb(44, 210, 190);
@@ -24,6 +26,7 @@ struct PickChoices {
 }
 pub struct Workspace {
     pub chat: chat::Chat,
+    feature_editor: Option<feature_editor::FeatureEditor>,
     pub model: Model,
     pub browser_downloads: bool,
     pub local_backend: Option<String>,
@@ -55,6 +58,7 @@ impl Default for Workspace {
     fn default() -> Self {
         Self {
             chat: chat::Chat::default(),
+            feature_editor: None,
             model: Model::default(),
             browser_downloads: false,
             local_backend: None,
@@ -168,6 +172,10 @@ impl Workspace {
                 }
             }
             Event::Completed { ticket, message } => {
+                if message == "Feature updated" {
+                    self.feature_editor = None;
+                    self.inspector_open = false;
+                }
                 if self.model.job == ticket {
                     if self.model.job_label == "Committing model" {
                         self.inspector_open = false;
@@ -177,6 +185,22 @@ impl Workspace {
                         self.model.notice = message;
                     }
                     self.model.selection = None;
+                }
+            }
+            Event::ViewFailed { epoch, message } => {
+                if epoch.is_none_or(|epoch| epoch == self.model.view_epoch) {
+                    self.apply(
+                        Event::Failed {
+                            ticket: None,
+                            preview: false,
+                            failure: Failure {
+                                kind: "render_failed".into(),
+                                message,
+                                request: None,
+                            },
+                        },
+                        ctx,
+                    );
                 }
             }
             Event::Failed {
@@ -315,6 +339,10 @@ impl Workspace {
         })
     }
     fn properties(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, actions: &mut Vec<Action>) {
+        if self.feature_editor.is_some() {
+            self.feature_properties(ui, actions);
+            return;
+        }
         ui.label(
             RichText::new(match self.model.mode {
                 Mode::Box => "Box",
@@ -1149,6 +1177,26 @@ impl Workspace {
                                 .max_height(ui.available_height())
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
+                                    let features=self.model.scene.as_ref().and_then(|s|s.scene.features.clone());
+                                    if let Some(features)=features {
+                                        ui.label(RichText::new("Features").strong().color(Color32::from_rgb(44,65,79)));
+                                        for f in features {
+                                            let target=format!("feature:{}",f.id);
+                                            let referenced=self.chat.references.iter().any(|r|self.reference_current(r)&&r.target==target);
+                                            ui.horizontal(|ui|{
+                                                let text=if f.suppressed{format!("{} (suppressed)",f.name)}else{f.name.clone()};
+                                                let row=ui.add_sized([(ui.available_width()-50.).max(40.),32.],egui::Button::selectable(referenced,text).truncate());self.geometry.record(format!("feature-{}",f.id),&row,true);
+                                                if row.clicked(){self.chat.open=true;if let Some(r)=self.named_reference(ReferenceKind::Feature,target,f.name.clone()){self.add_reference(r);}}
+                                                let edit=ui.add(egui::Button::new(RichText::new("Edit").color(Color32::from_rgb(34,65,80))).fill(Color32::from_rgb(214,230,239)).min_size(Vec2::new(42.,32.))).on_hover_text("Edit feature parameters");self.geometry.record(format!("edit-feature-{}",f.id),&edit,true);if edit.clicked(){self.open_feature_editor(f.clone());}
+                                            });
+                                        }
+                                        if let Some(timeline)=self.model.scene.as_ref().and_then(|s|s.scene.timeline.clone()) {
+                                            egui::CollapsingHeader::new("Edit history").id_salt("edit-history").show(ui,|ui|{
+                                                if let Some(entries)=timeline["entries"].as_array(){for (i,e) in entries.iter().enumerate(){ui.label(format!("{} {}",if Some(i as u64)==timeline["cursor"].as_u64(){"●"}else{"·"},e["label"].as_str().unwrap_or("")));}}
+                                            });
+                                        }
+                                    } else {
+                                        ui.small("Legacy document · operation records");
                                     egui::CollapsingHeader::new("Operations")
                                         .id_salt("tree-history")
                                         .default_open(true)
@@ -1186,6 +1234,7 @@ impl Workspace {
                                                 ui.small("No operation records");
                                             }
                                         });
+                                    }
                                     let tree_scene = self
                                         .model
                                         .scene
@@ -1313,6 +1362,7 @@ impl Workspace {
                                     .record(format!("document-{i}"), &response, enabled);
                                 if response.clicked() {
                                     self.model.select(id.clone());
+                                    self.feature_editor = None;
                                     self.inspector_open = false;
                                     actions.push(Action::Select(id.clone()));
                                 }
@@ -1562,6 +1612,7 @@ impl Workspace {
         self.geometry.frame_current = self.frame_current();
         self.geometry.connected = self.model.connected;
         self.geometry.uncertain = self.model.unknown.is_some();
+        self.geometry.model_error = self.model.error.clone();
         self.geometry.agent_open = self.chat.open;
         self.geometry.agent_draft = self.chat.draft.clone();
         self.geometry.references = self.chat.references.clone();
@@ -1606,6 +1657,8 @@ mod picking_tests {
                 edges: edges.clone(),
                 can_undo: false,
                 can_redo: false,
+                features: None,
+                timeline: None,
             }),
         });
         let mut frame = cad_render::render_view(&mesh, &edges, 96, 96, w.model.camera).unwrap();

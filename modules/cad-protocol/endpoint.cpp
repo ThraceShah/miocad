@@ -89,7 +89,7 @@ struct Endpoint::Impl {
                     const auto operation=req["command"].value("op",std::string{});
                     std::string effect;
                     for(const auto& spec:contract()["commands"])if(spec["id"]==operation)effect=spec["effect"].get<std::string>();
-                    if(effect=="document_write" || effect=="session_write") {
+                    if((effect=="document_write" || effect=="session_write") && req["command"].value("document",std::string{}).rfind("tx.",0)!=0) {
                         const auto& result=response["result"];
                         response["events"].push_back({{"kind",effect=="session_write"?"document.created":"document.changed"},
                             {"event_id",++event_id},{"worker_id",worker},{"session_id",session},

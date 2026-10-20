@@ -115,6 +115,31 @@ impl Tasks {
                     }
                 }
             }
+            if let Some(tx) = record.state.transaction.clone() {
+                if let Ok(mut client) = self.client(&key).await {
+                    if let Ok(reply) = client
+                        .execute(Command::TransactionAbort {
+                            document: record.state.document.clone(),
+                            transaction: tx,
+                        })
+                        .await
+                    {
+                        if reply.ok {
+                            record.state.transaction = None;
+                            record
+                                .state
+                                .text
+                                .push_str(" Uncommitted candidate discarded.");
+                        }
+                    }
+                    if let Ok(scene) = Self::scene(&mut client, record.state.document.clone()).await
+                    {
+                        record.state.revision = scene.revision;
+                    }
+                }
+            }
+            self.save(&key, &record.state, None)?;
+            self.publish(&key, &record.state).await;
         }
         Ok(record.state)
     }
@@ -145,6 +170,8 @@ impl Tasks {
             steps: vec![],
             can_undo: false,
             done: false,
+            atomic: false,
+            transaction: None,
         };
         self.save(&key, &state, None)?;
         jobs.insert(key.clone(), state.clone());
@@ -243,6 +270,12 @@ impl Tasks {
                 edge: reference.clone(),
                 radius: Finite::new(*radius).map_err(|e| e.to_string())?,
             },
+            Proposal::FeatureEdit { feature, patch } => Command::FeatureEdit {
+                document: doc.clone(),
+                revision,
+                feature: feature.clone(),
+                patch: patch.clone(),
+            },
             Proposal::Box { size } => Command::Box {
                 document: doc.clone(),
                 revision,
@@ -267,11 +300,18 @@ impl Tasks {
             }
             state.phase = "failed".into();
             state.text = error;
-            if !state.steps.is_empty() {
+            if !state.steps.is_empty() || state.transaction.is_some() {
                 match self.rollback(&key, &mut state).await {
                     Ok(()) => {
-                        state.phase = "rolled_back".into();
-                        state.text.push_str(" Task changes were rolled back.");
+                        state.phase = if state.steps.is_empty() {
+                            "failed"
+                        } else {
+                            "rolled_back"
+                        }
+                        .into();
+                        state
+                            .text
+                            .push_str(" Candidate task changes were discarded.");
                     }
                     Err(e) => {
                         if state.phase != "outcome_unknown" {
@@ -306,6 +346,42 @@ impl Tasks {
         let events: Vec<Event> =
             serde_json::from_value(events["events"].clone()).map_err(|_| "Invalid CAD history")?;
         validate_references(turn, &current, &events)?;
+        let mut working = turn.clone();
+        if current.data.features.is_some() {
+            let reply = self
+                .write(
+                    key,
+                    state,
+                    &mut client,
+                    Command::TransactionBegin {
+                        document: turn.document.clone(),
+                        revision: turn.revision,
+                    },
+                )
+                .await?;
+            if !reply.ok {
+                return Err("Cannot begin isolated CAD task".into());
+            }
+            let value = reply.result.ok_or("Missing transaction receipt")?;
+            let tx = value["data"]["transaction"]
+                .as_str()
+                .ok_or("Invalid transaction receipt")?
+                .to_string();
+            state.transaction = Some(tx.clone());
+            state.atomic = true;
+            self.save(key, state, None)?;
+            working.document = DocumentId::new(tx).map_err(|e| e.to_string())?;
+            for r in &mut working.references {
+                r.document = working.document.clone();
+                if let Some(suffix) = r
+                    .target
+                    .strip_prefix(&format!("{}:", turn.document.as_str()))
+                {
+                    r.target = format!("{}:{suffix}", working.document.as_str());
+                }
+            }
+            current = Self::scene(&mut client, working.document.clone()).await?;
+        }
         let mut errors: Vec<String> = vec![];
         // Each turn may execute multiple modeled operations with fresh kernel feedback.
         let max_steps = match std::env::var("CAD_AGENT_MAX_STEPS") {
@@ -329,9 +405,9 @@ impl Tasks {
             );
             self.publish(key, state).await;
             let edges:Vec<_>=current.data.edges.iter().map(|e|serde_json::json!({"reference":e.reference,"length_mm":e.length,"points":e.points})).collect();
-            let feedback = serde_json::json!({"operation_budget_remaining":max_steps-state.steps.len(),"current_revision":current.revision,"completed":state.steps,"errors":errors,"edges":edges,"instruction":"Select current edge IDs. Completed operations have already been applied. Return proposal:null when the goal is done. Never request user approval."});
-            let reply = generate(turn, &current.data, feedback).await?;
-            let latest = Self::scene(&mut client, turn.document.clone()).await?;
+            let feedback = serde_json::json!({"operation_budget_remaining":max_steps-state.steps.len(),"current_revision":current.revision,"completed":state.steps,"errors":errors,"edges":edges,"features":current.data.features,"instruction":"Select current edge IDs. Completed operations have already been applied. Return proposal:null when the goal is done. Never request user approval."});
+            let reply = generate(&working, &current.data, feedback).await?;
+            let latest = Self::scene(&mut client, working.document.clone()).await?;
             if latest.revision != state.revision {
                 return Err("Another client changed the model while Agent was thinking.".into());
             }
@@ -339,6 +415,33 @@ impl Tasks {
                 return Err(reply.text);
             }
             let Some(operation) = reply.proposal.clone() else {
+                if let Some(tx) = state.transaction.clone() {
+                    if state.steps.is_empty() {
+                        self.rollback(key, state).await?;
+                    } else {
+                        let committed = self
+                            .write(
+                                key,
+                                state,
+                                &mut client,
+                                Command::TransactionCommit {
+                                    document: turn.document.clone(),
+                                    revision: turn.revision,
+                                    transaction: tx,
+                                    label: "Agent task".into(),
+                                },
+                            )
+                            .await?;
+                        if !committed.ok {
+                            return Err("Another client changed the document; isolated task was not committed".into());
+                        }
+                        let result: DocumentResult<DocumentState> = committed
+                            .result_as()
+                            .map_err(|_| "Invalid transaction commit")?;
+                        state.revision = result.revision;
+                        state.transaction = None;
+                    }
+                }
                 state.phase = "completed".into();
                 state.text = reply.text;
                 state.can_undo = !state.steps.is_empty();
@@ -347,7 +450,7 @@ impl Tasks {
             if state.steps.len() >= max_steps {
                 return Err("Agent operation budget reached before task completion".into());
             }
-            let mut scope = turn.clone();
+            let mut scope = working.clone();
             scope.revision = current.revision;
             if !state.steps.is_empty()
                 || !scope
@@ -361,12 +464,35 @@ impl Tasks {
                     .iter()
                     .map(|e| Reference {
                         name: e.reference.clone(),
-                        document: turn.document.clone(),
+                        document: working.document.clone(),
                         revision: current.revision,
                         kind: ReferenceKind::Edge,
                         target: e.reference.clone(),
                     })
                     .collect();
+            }
+            if let Some(features) = &current.data.features {
+                for f in features {
+                    if state.steps.is_empty()
+                        && working
+                            .references
+                            .iter()
+                            .any(|r| r.kind == ReferenceKind::Feature)
+                        && !working.references.iter().any(|r| {
+                            r.kind == ReferenceKind::Feature
+                                && r.target == format!("feature:{}", f.id)
+                        })
+                    {
+                        continue;
+                    }
+                    scope.references.push(Reference {
+                        name: f.name.clone(),
+                        document: working.document.clone(),
+                        revision: current.revision,
+                        kind: ReferenceKind::Feature,
+                        target: format!("feature:{}", f.id),
+                    });
+                }
             }
             scope.validate_reply(&reply)?;
             if let Proposal::Fillet { reference, .. } = &operation {
@@ -374,7 +500,7 @@ impl Tasks {
                     return Err("Agent selected a non-current edge".into());
                 }
             }
-            let command = Self::command(&operation, &turn.document, current.revision)?;
+            let command = Self::command(&operation, &working.document, current.revision)?;
             state.phase = "executing".into();
             state.text = reply.text;
             self.publish(key, state).await;
@@ -391,7 +517,7 @@ impl Tasks {
                         errors.last().unwrap()
                     ));
                 }
-                current = Self::scene(&mut client, turn.document.clone()).await?;
+                current = Self::scene(&mut client, working.document.clone()).await?;
                 continue;
             }
             let doc: DocumentResult<DocumentState> =
@@ -402,7 +528,7 @@ impl Tasks {
                 revision: doc.revision,
             });
             self.save(key, state, None)?;
-            current = Self::scene(&mut client, turn.document.clone()).await?;
+            current = Self::scene(&mut client, working.document.clone()).await?;
             if current.revision != state.revision {
                 return Err("Model changed after an Agent operation".into());
             }
@@ -414,7 +540,33 @@ impl Tasks {
     }
     async fn rollback(&self, key: &str, state: &mut TaskState) -> Result<(), String> {
         let mut client = self.client(key).await?;
-        for _ in 0..state.steps.len() {
+        if let Some(tx) = state.transaction.clone() {
+            let reply = self
+                .write(
+                    key,
+                    state,
+                    &mut client,
+                    Command::TransactionAbort {
+                        document: state.document.clone(),
+                        transaction: tx,
+                    },
+                )
+                .await?;
+            if !reply.ok {
+                return Err("Could not discard isolated task".into());
+            }
+            state.transaction = None;
+            state.revision = Self::scene(&mut client, state.document.clone())
+                .await?
+                .revision;
+            state.can_undo = false;
+            return Ok(());
+        }
+        for _ in 0..if state.atomic {
+            usize::from(!state.steps.is_empty())
+        } else {
+            state.steps.len()
+        } {
             let scene = Self::scene(&mut client, state.document.clone()).await?;
             if scene.revision != state.revision {
                 return Err(
@@ -516,6 +668,8 @@ mod tests {
             steps: vec![],
             can_undo: false,
             done: false,
+            atomic: false,
+            transaction: None,
         }
     }
     #[tokio::test]

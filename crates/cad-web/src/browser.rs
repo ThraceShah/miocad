@@ -300,14 +300,14 @@ impl Browser {
             })();
             output
                 .borrow_mut()
-                .push_back(result.unwrap_or_else(|message| Event::Failed {
-                    ticket: None,
-                    preview: false,
-                    failure: Failure {
-                        kind: "render_failed".into(),
+                .push_back(result.unwrap_or_else(|message| {
+                    Event::ViewFailed {
+                        epoch: js_sys::Reflect::get(&event.data(), &"epoch".into())
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .map(|v| v as u64),
                         message,
-                        request: None,
-                    },
+                    }
                 }));
             ctx.request_repaint();
         }) as Box<dyn FnMut(_)>);

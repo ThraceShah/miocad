@@ -1,5 +1,7 @@
 #include "commander.h"
 #include "commands.h"
+#include "store.h"
+#include <cstdlib>
 #include "reference.h"
 #include "protocol.h"
 #include <algorithm>
@@ -67,13 +69,17 @@ struct Commander::Impl {
     };
     std::unique_ptr<IKernel> kernel;
     std::map<std::string, Document> documents;
+    DocumentStore store;
+    struct Branch { std::string parent; std::uint64_t revision; Document document; };
+    std::map<std::string,Branch> branches;
 
-    explicit Impl(std::unique_ptr<IKernel> backend) : kernel(std::move(backend)) {
+    explicit Impl(std::unique_ptr<IKernel> backend) : kernel(std::move(backend)), store(std::getenv("CAD_DOCUMENT_STORE")?std::getenv("CAD_DOCUMENT_STORE"):"") {
         if (!kernel) throw std::invalid_argument("Commander requires a kernel");
+        documents=store.load(*kernel);
     }
 
     Json capabilities(Context&) {
-        return {{"kernel", "smlib"}, {"gpu_picking", false}, {"persistent_naming", false}, {"native_format", "smb"}};
+        return {{"kernel", "smlib"}, {"gpu_picking", false}, {"persistent_naming", false}, {"native_format", "smb"}, {"feature_graph",true}, {"atomic_transactions",true}};
     }
     Json list(Context&) { return catalog(); }
     Json document_list(Context&) {
@@ -89,7 +95,7 @@ struct Commander::Impl {
     }
     Json state(Context& context) { return document_state(*context.document); }
     Json box(Context& context) {
-        context.document->commit(kernel->box(context.request.at("size").get<Point>()));
+        context.document->box(*kernel,context.request.at("size").get<Point>());
         return document_state(*context.document);
     }
     Json fillet(Context& context) {
@@ -98,7 +104,7 @@ struct Commander::Impl {
         try {
             selected = resolve_edge(context.request.at("edge").get<std::string>(), context.document_id, context.document->revision(), count);
         } catch (const std::invalid_argument& e) { throw CommandError("invalid_reference", e.what()); }
-        cad::fillet(*context.document, selected, context.request.at("radius").get<double>());
+        context.document->fillet(*kernel,selected,context.request.at("radius").get<double>());
         return document_state(*context.document);
     }
     Json undo(Context& context) { context.document->undo(); return document_state(*context.document); }
@@ -121,7 +127,8 @@ struct Commander::Impl {
         return {{"state", document_state(*context.document)},
             {"mesh", context.document->shape() ? mesh(context) : Json(nullptr)},
             {"edges", context.document->shape() ? edges(context) : Json::array()},
-            {"can_undo", context.document->can_undo()}, {"can_redo", context.document->can_redo()}};
+            {"can_undo", context.document->can_undo()}, {"can_redo", context.document->can_redo()},
+            {"features",context.document->features()}, {"timeline",context.document->timeline()}};
     }
     Json preview(Context& context) {
         // Candidate owns only temporary history; mutations clone geometry as usual.
@@ -136,6 +143,36 @@ struct Commander::Impl {
         }
         temporary.document_id = "preview." + new_id();
         return scene(temporary);
+    }
+    Json features(Context& c){return c.document->features();}
+    Json timeline(Context& c){return c.document->timeline();}
+    Json feature_edit(Context& c){c.document->edit(*kernel,c.request.at("feature"),c.request.at("patch"));return document_state(*c.document);}
+    Json recompute(Context& c){c.document->recompute_all(*kernel);return document_state(*c.document);}
+    Json begin(Context& c){
+        if(!documents.count(c.document_id))throw CommandError("transaction_conflict","nested transactions are not supported");
+        if(branches.size()>=32)throw CommandError("transaction_conflict","too many active transactions");
+        const auto id="tx."+new_id();branches.emplace(id,Branch{c.document_id,c.document->revision(),*c.document});
+        return {{"transaction",id},{"base_revision",c.document->revision()}};
+    }
+    Json abort(Context& c){
+        const auto id=c.request.at("transaction").get<std::string>();const auto it=branches.find(id);
+        if(it==branches.end()||it->second.parent!=c.document_id)throw CommandError("transaction_conflict","unknown transaction");
+        branches.erase(it);return {{"aborted",true}};
+    }
+    Json commit_transaction(Context& c){
+        const auto id=c.request.at("transaction").get<std::string>();const auto it=branches.find(id);
+        if(it==branches.end()||it->second.parent!=c.document_id||it->second.revision!=c.document->revision())throw CommandError("transaction_conflict","document changed since transaction began");
+        c.document->accept(it->second.document,c.request.value("label",std::string("Agent task")));
+        return document_state(*c.document);
+    }
+    Json save(Context& c){
+        const auto path=c.request.at("path").get<std::string>();if(path.empty()||std::filesystem::path(path).extension()!=".miocad")throw CommandError("invalid_params","project directory must end in .miocad");
+        DocumentStore destination(path);if(!destination.save({{c.document_id,*c.document}}))throw CommandError("outcome_unknown","project manifest published but directory sync failed; inspect project");return {{"path",path},{"format","miocad-v1"}};
+    }
+    Json open(Context& c){
+        const auto path=c.request.at("path").get<std::string>();if(std::filesystem::path(path).extension()!=".miocad")throw CommandError("invalid_params","project directory must end in .miocad");
+        auto restored=DocumentStore(path).load(*kernel);if(restored.size()!=1)throw CommandError("io_error","project must contain exactly one document");
+        *c.document=std::move(restored.begin()->second);auto r=document_state(*c.document);r["document"]=c.document_id;return r;
     }
     Json export_native(Context& context) {
         const auto path = context.request.at("path").get<std::string>();
@@ -159,6 +196,8 @@ struct Commander::Impl {
     static const std::vector<Spec>& specs() {
         static const auto entries=[] {
             const std::map<std::string,Handler> handlers={
+                {"feature.list",&Impl::features},{"feature.edit",&Impl::feature_edit},{"document.history",&Impl::timeline},{"document.recompute",&Impl::recompute},
+                {"transaction.begin",&Impl::begin},{"transaction.commit",&Impl::commit_transaction},{"transaction.abort",&Impl::abort},{"document.save",&Impl::save},{"document.open",&Impl::open},
                 {"capabilities",&Impl::capabilities},{"commands.list",&Impl::list},{"document.create",&Impl::create},
                 {"document.list",&Impl::document_list},{"document.state",&Impl::state},{"model.box",&Impl::box},{"model.fillet",&Impl::fillet},
                 {"document.undo",&Impl::undo},{"document.redo",&Impl::redo},{"topology.edges",&Impl::edges},
@@ -196,8 +235,9 @@ struct Commander::Impl {
         if (spec->document) {
             context.document_id = request.at("document").get<std::string>();
             const auto it = documents.find(context.document_id);
-            if (it == documents.end()) throw CommandError("document_not_found", "unknown document");
-            live = &it->second;
+            if(it!=documents.end())live=&it->second;
+            else if(auto b=branches.find(context.document_id);b!=branches.end())live=&b->second.document;
+            else throw CommandError("document_not_found", "unknown document");
             context.document = live;
             if (spec->revision && request.at("revision").get<std::uint64_t>() != live->revision())
                 throw CommandError("revision_conflict", "stale revision");
@@ -225,8 +265,20 @@ struct Commander::Impl {
         if (request.contains("id")) response["id"] = request["id"];
         // Publish only after validation AND response construction have succeeded.
         // This also protects Undo/Redo and redo branches from query failures.
-        if (spec->effect == Effect::DocumentWrite) live->swap(*staged);
-        else if (spec->effect == Effect::SessionWrite) documents.emplace(context.document_id, std::move(*staged));
+        bool synced=true;
+        if (spec->effect == Effect::DocumentWrite) {
+            if(documents.count(context.document_id)){
+                auto durable=documents;durable.at(context.document_id)=*staged;
+                try{synced=store.save(durable);}catch(const std::exception& e){throw CommandError("io_error",e.what());}
+            }
+            live->swap(*staged);
+            if(operation=="transaction.commit")branches.erase(request.at("transaction").get<std::string>());
+        } else if (spec->effect == Effect::SessionWrite) {
+            auto durable=documents;durable.emplace(context.document_id,*staged);
+            try{synced=store.save(durable);}catch(const std::exception& e){throw CommandError("io_error",e.what());}
+            documents.swap(durable);
+        }
+        if(!synced)throw CommandError("outcome_unknown","document was published but directory sync failed; inspect state; do not replay");
         return response;
     }
 };
@@ -239,6 +291,7 @@ Json Commander::execute(const Json& request) {
     Json response;
     try { return impl_->execute(request); }
     catch (const CommandError& e) { response = command_error(e.kind, e.what()); }
+    catch (const FeatureError& e) { response = command_error(e.kind,e.what()); }
     catch (const DocumentValidationError& e) { response = command_error("validation_failed", e.what()); }
     catch (const Json::exception& e) { response = command_error("invalid_params", e.what()); }
     catch (const std::invalid_argument& e) { response = command_error("invalid_params", e.what()); }

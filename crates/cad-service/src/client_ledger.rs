@@ -66,7 +66,8 @@ impl Clients {
     fn error(worker: &Worker, req: &Value, kind: &str, message: &str) -> Value {
         let mut v = Self::base(worker, req);
         v["ok"] = json!(false);
-        v["error"] = json!({"kind":kind,"message":message,"retryable":false});
+        v["error"] =
+            json!({"code":"command_failed","kind":kind,"message":message,"retryable":false});
         v
     }
     fn rewrite(mut value: Value, req: &Value) -> Value {
@@ -120,6 +121,19 @@ impl Clients {
         } else {
             None
         };
+        if ledger.is_none() && worker.current.is_some() {
+            // The legacy and current kernels share one logical request sequence.
+            // Move existing clients into the durable adapter before any execution.
+            let hello = json!({"protocol":req["protocol"],"method":"hello","request_id":0,"client_id":req["client_id"]});
+            let direct = worker.exchange(&hello).await?;
+            if direct["ok"] != true && direct["error"]["kind"] != "client_limit" {
+                return Ok(direct);
+            }
+            ledger = Some(Ledger {
+                water: direct["result"]["last_request_id"].as_u64().unwrap_or(0),
+                entries: BTreeMap::new(),
+            });
+        }
         if ledger.is_none() {
             let direct = worker.exchange(req).await?;
             if req["method"] != "hello" || direct["error"]["kind"] != "client_limit" {
@@ -282,7 +296,9 @@ mod tests {
             .unwrap_or_else(|| {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../build/cad-server")
             });
-        let mut worker = Worker::start(&binary, root.clone()).await.unwrap();
+        let mut worker = Worker::start(&binary, root.clone(), root.join("documents"))
+            .await
+            .unwrap();
         let mut hello = Value::Null;
         for i in 0..140 {
             hello=worker.client_exchange(&json!({"protocol":"1.0","method":"hello","client_id":format!("client-{i}"),"request_id":0})).await.unwrap();

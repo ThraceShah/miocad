@@ -84,8 +84,17 @@ pub struct Turn {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Proposal {
-    Fillet { reference: String, radius: f64 },
-    Box { size: [f64; 3] },
+    Fillet {
+        reference: String,
+        radius: f64,
+    },
+    Box {
+        size: [f64; 3],
+    },
+    FeatureEdit {
+        feature: String,
+        patch: serde_json::Value,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -149,6 +158,16 @@ impl Turn {
                     return Err("Agent proposal must use an explicitly referenced edge and a valid constant radius".into());
                 }
             }
+            Some(Proposal::FeatureEdit { feature, patch }) => {
+                validate_ref(patch, "FeaturePatch").map_err(|e| e.to_string())?;
+                if patch.as_object().is_none_or(|p| p.is_empty())
+                    || !self.references.iter().any(|r| {
+                        r.kind == ReferenceKind::Feature && r.target == format!("feature:{feature}")
+                    })
+                {
+                    return Err("Feature edit must target a current named feature".into());
+                }
+            }
             Some(Proposal::Box { size })
                 if size
                     .iter()
@@ -172,21 +191,27 @@ pub fn validate_references(
         return Err("Document changed; select references again".into());
     }
     for r in &turn.references {
-        let exists = match r.kind {
-            ReferenceKind::Edge => scene.data.edges.iter().any(|e| e.reference == r.target),
-            ReferenceKind::Face => scene
-                .data
-                .mesh
-                .as_ref()
-                .is_some_and(|m| m.triangles.iter().any(|t| t.face == r.target)),
-            ReferenceKind::Body => r.target == "body" && !scene.data.state.empty,
-            ReferenceKind::Feature => events.iter().any(|e| {
-                e.document == turn.document
-                    && e.revision.get() <= turn.revision.get()
-                    && matches!(e.command.as_str(), "model.box" | "model.fillet")
-                    && r.target == format!("event:{}", e.event_id.get())
-            }),
-        };
+        let exists =
+            match r.kind {
+                ReferenceKind::Edge => scene.data.edges.iter().any(|e| e.reference == r.target),
+                ReferenceKind::Face => scene
+                    .data
+                    .mesh
+                    .as_ref()
+                    .is_some_and(|m| m.triangles.iter().any(|t| t.face == r.target)),
+                ReferenceKind::Body => r.target == "body" && !scene.data.state.empty,
+                ReferenceKind::Feature => {
+                    scene.data.features.as_ref().is_some_and(|fs| {
+                        fs.iter().any(|f| r.target == format!("feature:{}", f.id))
+                    }) || (scene.data.features.is_none()
+                        && events.iter().any(|e| {
+                            e.document == turn.document
+                                && e.revision.get() <= turn.revision.get()
+                                && matches!(e.command.as_str(), "model.box" | "model.fillet")
+                                && r.target == format!("event:{}", e.event_id.get())
+                        }))
+                }
+            };
         if !exists {
             return Err(format!(
                 "Reference {} no longer exists in this document",
@@ -282,6 +307,8 @@ mod scope_tests {
                 }],
                 can_undo: true,
                 can_redo: false,
+                features: None,
+                timeline: None,
             },
         };
         let mut turn = Turn {
@@ -334,4 +361,8 @@ pub struct TaskState {
     pub steps: Vec<StepReceipt>,
     pub can_undo: bool,
     pub done: bool,
+    #[serde(default)]
+    pub atomic: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
 }

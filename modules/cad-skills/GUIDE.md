@@ -37,3 +37,12 @@ render.snapshot 可显式传 camera/revision/backend；pixel pick 失败或 cand
 相机更新导致 stale_view，模型编辑导致 stale_render；Preview 帧不能用作已提交模型。
 同用户的渲染 relay 升级保留 service/worker 身份，显式 service.reconnect 可跟随新监听地址；身份变化仍禁止迁移旧请求。
 详见 [P7 共享视口](../../docs/viewport-p7.md)。
+
+
+## 参数特征与事务
+
+对新版文档，render.scene 返回 features 和 timeline。先查询 feature.list，使用 feature.edit 的 feature ID 和 patch（Box size、Fillet radius、name、suppressed），不要通过新建 Box 模拟编辑已有 Box。所有修改附当前 revision，失败保留原模型和历史。document.history 是编辑历史，不是特征树；Undo/Redo 不重算内核。document.recompute 显式重算当前特征链。旧文档没有 features 时仍为旧几何历史，不能根据 event ID 声称可以编辑特征。
+
+多步任务使用 transaction.begin 的私有文档 ID，后续命令和边 token 使用该文档，读取新 revision/边列表；最后以原文档与 base revision 调用 transaction.commit，label 描述任务。成功后一次 Undo/Redo 对应整个任务。失败用 transaction.abort 丢弃候选；并发冲突不得覆盖别人的修改。不要要求用户预览或确认 Agent 支持的操作。
+
+CLI/MCP 可用 document.save 保存完整 .miocad 目录项目、document.open 在新 ID 下加载；保存整个目录，包括 geometry 和 manifest。不要将仅含几何的 .smb 导出当作完整项目保存。

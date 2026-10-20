@@ -569,3 +569,7 @@ GPU 候选最多三个，溢出明示；Frame 缓存四份、视口 128、逻辑
 实际HTTPS竖屏验收：新页面免码进入，命名实体/特征引用、高亮、资源/API/嵌套路径通过；确认无Agent预览/确认控件。使用过期revision任务验证后台start/status及执行前拒绝，steps=0，未向生产模型执行建模；真实推理与自动提交已在隔离服务验证。47项Rust测试、真实性推理、截图和回执证据在 `artifacts/agent-chat/`、`artifacts/agent-chat-live/`、`artifacts/agent-autonomy-deployment/`（Git忽略）。
 
 最终发布后再次通过HTTPS免码/刷新/嵌套路径回归、新浏览器和新CLI逻辑客户端连接、后台任务过期scope拒绝（steps=0）。生产快照与本次发布前完全一致：revision=12/4、cursor=18、worker/session身份不变，owner PID=673288未重启；三项持久服务active，门户HTTPS200、miocad online=true。未向生产文档执行测试建模，所有自动提交/回滚/Undo真实性测试均使用独立临时服务。
+
+## 2026-10-20：参数特征、独立编辑历史及原子任务
+
+实现与边界见 [parametric-history.md](parametric-history.md)。完整 CTest 21/21、Rust 48项、独立兼容升级2/2、原生及WASM Clippy、实际WebGPU竖屏特征编辑通过。HTTPS已发布，Document03为新框架示例；原有两份文档、worker/session和拥有进程保持不变。测试涵盖上游修改重算、缓存不重放、失败保留redo、原子任务/冲突、磁盘故障、重启恢复及缺文件拒绝启动。

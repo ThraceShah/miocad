@@ -49,7 +49,13 @@
             "request_conflict",
             "outcome_unavailable",
             "outcome_unknown",
-            "client_limit"
+            "client_limit",
+            "feature_not_found",
+            "invalid_dependency",
+            "reference_unresolved",
+            "reference_ambiguous",
+            "recompute_failed",
+            "transaction_conflict"
           ]
         },
         "message": {
@@ -134,6 +140,12 @@
         },
         "native_format": {
           "const": "smb"
+        },
+        "feature_graph": {
+          "type": "boolean"
+        },
+        "atomic_transactions": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -1236,6 +1248,15 @@
         },
         "can_redo": {
           "type": "boolean"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Feature"
+          }
+        },
+        "timeline": {
+          "$ref": "#/$defs/Timeline"
         }
       },
       "required": [
@@ -1565,6 +1586,126 @@
         "edge_ids"
       ],
       "additionalProperties": false
+    },
+    "Feature": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "kind": {
+          "enum": [
+            "box",
+            "fillet"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "parameters": {
+          "type": "object"
+        },
+        "selector": {},
+        "suppressed": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "suppressed"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "dependencies",
+        "parameters",
+        "selector",
+        "suppressed",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Timeline": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/Counter"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "can_undo": {
+          "type": "boolean"
+        },
+        "can_redo": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cursor",
+        "entries",
+        "can_undo",
+        "can_redo"
+      ],
+      "additionalProperties": false
+    },
+    "FeaturePatch": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "size": {
+          "description": "Dimensions in mm",
+          "items": {
+            "exclusiveMinimum": 0,
+            "maximum": 1000000.0,
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10000
+        },
+        "suppressed": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
     }
   },
   "error_kinds": [
@@ -1587,7 +1728,13 @@
     "request_conflict",
     "outcome_unavailable",
     "outcome_unknown",
-    "client_limit"
+    "client_limit",
+    "feature_not_found",
+    "invalid_dependency",
+    "reference_unresolved",
+    "reference_ambiguous",
+    "recompute_failed",
+    "transaction_conflict"
   ],
   "effects": [
     "query",
@@ -2266,6 +2413,509 @@
         "document_exists",
         "current_revision"
       ]
+    },
+    {
+      "id": "feature.list",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "feature.list"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "required": [
+          "op",
+          "document"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Feature"
+            }
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists"
+      ]
+    },
+    {
+      "id": "document.history",
+      "effect": "query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "document.history"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "required": [
+          "op",
+          "document"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/Timeline"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists"
+      ]
+    },
+    {
+      "id": "feature.edit",
+      "effect": "document_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "feature.edit"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "feature": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "patch": {
+            "$ref": "#/$defs/FeaturePatch"
+          }
+        },
+        "required": [
+          "op",
+          "document",
+          "revision",
+          "feature",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
+      ]
+    },
+    {
+      "id": "document.recompute",
+      "effect": "document_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "document.recompute"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          }
+        },
+        "required": [
+          "op",
+          "document",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
+      ]
+    },
+    {
+      "id": "transaction.begin",
+      "effect": "external_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "transaction.begin"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          }
+        },
+        "required": [
+          "op",
+          "document",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "transaction": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "base_revision": {
+                "$ref": "#/$defs/Counter"
+              }
+            },
+            "required": [
+              "transaction",
+              "base_revision"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
+      ]
+    },
+    {
+      "id": "transaction.commit",
+      "effect": "document_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "transaction.commit"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "transaction": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "op",
+          "document",
+          "revision",
+          "transaction",
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "$ref": "#/$defs/State"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
+      ]
+    },
+    {
+      "id": "transaction.abort",
+      "effect": "external_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "transaction.abort"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "transaction": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "required": [
+          "op",
+          "document",
+          "transaction"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "aborted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "aborted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists"
+      ]
+    },
+    {
+      "id": "document.save",
+      "effect": "external_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "document.save"
+          },
+          "id": {},
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "op",
+          "document",
+          "revision",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "format": {
+                "const": "miocad-v1"
+              }
+            },
+            "required": [
+              "path",
+              "format"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        "document_exists",
+        "current_revision"
+      ]
+    },
+    {
+      "id": "document.open",
+      "effect": "session_write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "const": "document.open"
+          },
+          "id": {},
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "op",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "revision": {
+            "$ref": "#/$defs/Counter"
+          },
+          "units": {
+            "const": "mm"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "volume": {
+            "type": "number"
+          },
+          "faces": {
+            "$ref": "#/$defs/Counter"
+          },
+          "edges": {
+            "$ref": "#/$defs/Counter"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document",
+          "revision",
+          "units",
+          "empty"
+        ],
+        "additionalProperties": false
+      },
+      "preconditions": []
     }
   ],
   "service_methods": [

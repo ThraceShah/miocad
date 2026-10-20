@@ -52,6 +52,7 @@ void catalog_contract() {
         require(spec.at("effect").is_string(), "missing effect");
     }
     const std::set<std::string> expected = {"capabilities", "commands.list", "document.create", "document.state", "document.list",
+        "feature.list", "feature.edit", "document.history", "document.recompute", "transaction.begin", "transaction.commit", "transaction.abort", "document.save", "document.open",
         "document.undo", "document.redo", "model.box", "model.fillet", "topology.edges", "render.mesh", "render.scene", "model.preview", "export.native"};
     require(names == expected, "catalog does not describe all core commands");
     require(call(commander, {{"op", "commands.list"}}) == catalog, "discovery differs from native catalog");

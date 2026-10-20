@@ -2,6 +2,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include <vector>
 namespace cad {
 using Point = std::array<double,3>;
@@ -23,6 +24,7 @@ class IKernel {
 public:
   virtual ~IKernel() = default;
   virtual std::unique_ptr<Shape> box(Point size) = 0;
+  virtual std::unique_ptr<Shape> load_native(const std::string&) { throw std::runtime_error("native loading unsupported"); }
 };
 std::unique_ptr<IKernel> make_smlib_kernel();
 }

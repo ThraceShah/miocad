@@ -7,6 +7,7 @@ let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{
  if(t.text.includes('multi')){const n=(request.execution?.completed||[]).length;return console.log(JSON.stringify(n===0?{text:'Create Box',proposal:{kind:'box',size:[12,10,8]}}:n===1?{text:'Fillet new geometry',proposal:{kind:'fillet',reference:request.execution.edges[0].reference,radius:1}}:{text:'多步任务已完成。',proposal:null}));}
  if(t.text.includes('rollback'))return console.log(JSON.stringify({text:'First operation',proposal:{kind:'box',size:[4,4,4]}}));
  if(t.text==='box')return console.log(JSON.stringify({text:'Preview replacement Box',proposal:{kind:'box',size:[6,7,8]}}));
+ if(t.text==='edit feature'){const f=request.execution.features.find(f=>f.kind==='box');return console.log(JSON.stringify({text:'Resize referenced feature',proposal:{kind:'feature_edit',feature:f.id,patch:{size:[12,10,10]}}}));}
  const edge=t.references.find(r=>r.kind==='edge');
  if(t.text==='repair')return console.log(JSON.stringify({text:'Use kernel feedback to correct radius',proposal:{kind:'fillet',reference:edge.target,radius:request.execution.errors.length?1:100}}));
  if(t.text.includes('unsupported'))return console.log(JSON.stringify({text:'Variable radius is unsupported; model unchanged.',failed:true,proposal:null}));

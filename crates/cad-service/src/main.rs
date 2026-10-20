@@ -17,8 +17,12 @@ use tokio::{
     time::timeout,
 };
 mod client_ledger;
+mod hybrid;
 const EVENT_LIMIT: usize = 64;
 struct Worker {
+    current: Option<Box<Worker>>,
+    hybrid_water: Option<PathBuf>,
+    remote_cursor: u64,
     clients: Option<client_ledger::Clients>,
     child: Option<Child>,
     reader: Option<BufReader<ChildStdout>>,
@@ -37,8 +41,13 @@ struct Worker {
     views: BTreeMap<String, u64>,
 }
 impl Worker {
-    async fn start(path: &PathBuf, client_root: PathBuf) -> Result<Self, String> {
+    async fn start(
+        path: &PathBuf,
+        client_root: PathBuf,
+        document_store: PathBuf,
+    ) -> Result<Self, String> {
         let mut child = tokio::process::Command::new(path)
+            .env("CAD_DOCUMENT_STORE", document_store)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
@@ -48,6 +57,9 @@ impl Worker {
         let reader = BufReader::new(child.stdout.take().ok_or("worker stdout missing")?);
         let writer = child.stdin.take().ok_or("worker stdin missing")?;
         let mut w = Self {
+            current: None,
+            hybrid_water: None,
+            remote_cursor: 0,
             clients: None,
             child: Some(child),
             reader: Some(reader),
@@ -76,6 +88,18 @@ impl Worker {
         cad_protocol::validate_ref(&reply["result"], "HelloResult").map_err(|e| e.to_string())?;
         w.context = reply;
         w.clients = Some(client_ledger::Clients::new(client_root, &w.context));
+        let saved = w.snapshot().await?;
+        for doc in saved["documents"]
+            .as_array()
+            .ok_or("invalid saved documents")?
+        {
+            w.docs.insert(
+                doc["document"]
+                    .as_str()
+                    .ok_or("missing document ID")?
+                    .into(),
+            );
+        }
         Ok(w)
     }
     async fn remote(
@@ -107,6 +131,9 @@ impl Worker {
             .as_u64()
             .ok_or("upstream high-water missing")?;
         Ok(Self {
+            current: None,
+            hybrid_water: None,
+            remote_cursor: 0,
             clients: Some(client_ledger::Clients::new(client_root, &context)),
             child: None,
             reader: None,
@@ -145,19 +172,14 @@ impl Worker {
             ));
         }
         let result = timeout(Duration::from_secs(60), async {
-            let value = if let Some(endpoint) = &self.upstream {
-                cad_client::SharedClient::control(
-                    endpoint,
-                    ServiceRequest::Rpc {
-                        session: self.context["session_id"].as_str().map(str::to_string),
-                        request: req.clone(),
-                    },
-                )
-                .await
-                .map_err(|e| e.to_string())?
+            let (value, local) = if self.upstream.is_some() {
+                self.routed(req).await?
             } else {
                 write_frame(self.writer.as_mut().ok_or("worker stdin missing")?, req).await?;
-                read_frame(self.reader.as_mut().ok_or("worker stdout missing")?).await?
+                (
+                    read_frame(self.reader.as_mut().ok_or("worker stdout missing")?).await?,
+                    true,
+                )
             };
             let reply = Response::parse(value.clone()).map_err(|e| e.to_string())?;
             if value["client_id"] != req["client_id"] || value["request_id"] != req["request_id"] {
@@ -169,7 +191,7 @@ impl Worker {
             {
                 return Err("worker identity changed".into());
             }
-            if reply.ok && !reply.replayed {
+            if local && reply.ok && !reply.replayed {
                 for event in reply.events {
                     self.cursor += 1;
                     self.docs.insert(event.document.as_str().into());
@@ -196,6 +218,7 @@ impl Worker {
         result.map_err(|e| format!("worker_lost: {e}; in-flight outcome unknown; no replay"))
     }
     async fn snapshot(&mut self) -> Result<Value, String> {
+        self.sync_remote_events().await?;
         self.internal_id += 1;
         let request = json!({
             "protocol": self.context["protocol"], "method": "execute",
@@ -491,6 +514,7 @@ impl Worker {
 type Session = Arc<Mutex<Worker>>;
 struct Service {
     client_root: PathBuf,
+    document_root: PathBuf,
     endpoint: ServiceEndpoint,
     upstream: Option<ServiceEndpoint>,
     worker: PathBuf,
@@ -522,6 +546,8 @@ impl Service {
                     | ServiceRequest::RenderCapture { .. }
                     | ServiceRequest::RenderFrames { .. }
                     | ServiceRequest::RenderPick { .. }
+                    | ServiceRequest::Snapshot { .. }
+                    | ServiceRequest::Events { .. }
             ) {
                 let stopping = matches!(&envelope.request, ServiceRequest::Shutdown);
                 let result = cad_client::SharedClient::control(upstream, envelope.request)
@@ -556,7 +582,7 @@ impl Service {
                 if keys.len() >= 15 {
                     return Err("session_limit: 16 workers per service".into());
                 }
-                let worker = Worker::start(&self.worker,self.client_root.clone()).await?;
+                let worker = Worker::start(&self.worker,self.client_root.clone(),self.document_root.join(&key)).await?;
                 let id = worker.context["session_id"].as_str().ok_or("invalid session")?.to_string();
                 self.sessions.lock().await.insert(id.clone(), Arc::new(Mutex::new(worker)));
                 keys.insert(key, id.clone());
@@ -585,6 +611,7 @@ impl Service {
                 if worker.diagnostics()["state"] == "lost" {
                     return Err("worker_lost: event stream ended".into());
                 }
+                worker.sync_remote_events().await?;
                 let oldest = worker.events.front().and_then(|v| v["event_id"].as_u64()).unwrap_or(worker.cursor + 1);
                 let missed = after > worker.cursor || after < oldest - 1;
                 let events: Vec<_> = if missed {
@@ -718,7 +745,15 @@ async fn run() -> Result<(), String> {
         Err(e) => return Err(e.to_string()),
     }
     // Kernel initialization and handshake must finish before endpoint publication.
-    let first = Worker::start(&worker, root.join("owner-client-ledger")).await?;
+    let document_root = std::env::var_os("CAD_DOCUMENT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("documents"));
+    let first = Worker::start(
+        &worker,
+        root.join("owner-client-ledger"),
+        document_root.join("default"),
+    )
+    .await?;
     let default = first.context["session_id"]
         .as_str()
         .ok_or("missing session")?
@@ -747,6 +782,7 @@ async fn run() -> Result<(), String> {
     let (stop, mut stopping) = watch::channel(false);
     let service = Arc::new(Service {
         client_root: root.join("owner-client-ledger"),
+        document_root,
         endpoint,
         upstream: None,
         worker,
@@ -843,11 +879,33 @@ async fn relay(root: PathBuf) -> Result<(), String> {
         address: listener.local_addr().map_err(|e| e.to_string())?,
         ..upstream.clone()
     };
-    let first =
+    let mut first =
         Worker::remote(upstream.clone(), &default, root.join("relay-client-ledger")).await?;
+    let binary = std::env::var_os("CAD_CURRENT_SERVER")
+        .map(PathBuf::from)
+        .unwrap_or(
+            std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .parent()
+                .ok_or("service executable directory missing")?
+                .join("cad-server"),
+        );
+    let document_root = std::env::var_os("CAD_DOCUMENT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("documents"));
+    if first.context["result"]["capabilities"]["feature_graph"] != true {
+        first
+            .attach_current(
+                binary,
+                document_root.join("current"),
+                root.join("current-client-ledger"),
+            )
+            .await?;
+    }
     let (stop, mut stopping) = watch::channel(false);
     let service = Arc::new(Service {
         client_root: root.join("relay-client-ledger"),
+        document_root,
         endpoint: endpoint.clone(),
         upstream: Some(upstream.clone()),
         worker: PathBuf::new(),

@@ -236,7 +236,7 @@ impl Workspace {
                     .any(|r| r.kind == ReferenceKind::Feature)
                 {
                     ui.small(
-                        "Feature highlight = current body context; history records are read-only.",
+                        "Feature highlight shows current body context. Use the pencil to edit parameters.",
                     );
                 }
                 // Input remains visible; conversation gets the remaining height.
@@ -486,6 +486,8 @@ mod tests {
             steps: vec![],
             can_undo: true,
             done: true,
+            atomic: false,
+            transaction: None,
         };
         w.agent_reply(6, Ok(state.clone()));
         assert!(w.chat.thinking);

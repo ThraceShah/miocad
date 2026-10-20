@@ -71,6 +71,8 @@ fn authoritative_scene_advance_and_late_disconnect_invalidate_preview() {
         edges: vec![],
         can_undo: true,
         can_redo: false,
+        features: None,
+        timeline: None,
     };
     w.model.set_scene(BoundScene {
         document: DocumentId::new("doc").unwrap(),
@@ -140,6 +142,8 @@ fn service_frames_require_matching_epoch_camera_dimensions_and_revision() {
             edges: vec![],
             can_undo: true,
             can_redo: false,
+            features: None,
+            timeline: None,
         }),
     });
     let epoch = workspace.model.view_epoch;
@@ -176,4 +180,23 @@ fn service_frames_require_matching_epoch_camera_dimensions_and_revision() {
     assert!(workspace.frame_current());
     workspace.model.view_changed();
     assert!(!workspace.frame_current());
+}
+
+#[test]
+fn obsolete_render_failure_cannot_overwrite_current_feature_error() {
+    let ctx = egui::Context::default();
+    let mut w = cad_ui_egui::Workspace::default();
+    w.model.view_epoch = 42;
+    w.model.error = Some("feature f2: recompute failed".into());
+    w.apply(
+        cad_ui_egui::Event::ViewFailed {
+            epoch: Some(41),
+            message: "obsolete HTTP 409".into(),
+        },
+        &ctx,
+    );
+    assert_eq!(
+        w.model.error.as_deref(),
+        Some("feature f2: recompute failed")
+    );
 }
