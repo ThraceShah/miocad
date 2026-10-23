@@ -6,6 +6,8 @@ members = ["crates/cad-agent", "crates/cad-protocol", "crates/cad-client", "crat
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/ThraceShah/miocad"
 publish = false
 
 [workspace.dependencies]
