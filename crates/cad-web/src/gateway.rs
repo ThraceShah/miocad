@@ -583,7 +583,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = match cad_access::Config::parse()? {
         cad_access::Action::Run(c) => c,
         cad_access::Action::Help => {
-            println!("cad-web uses cad-cli connection flags. Environment: HOST(loopback), PORT, BASE_PATH, CAD_WEB_ORIGIN, CAD_WEB_ASSETS, CAD_WEB_TRUSTED_ACCESS=1 (explicit credential-free deployment). Access code: <runtime-dir>/web-access-code (0600). Browser grants expire after 8h; restart revokes grants. No Python runtime.");
+            println!("cad-web uses cad-cli connection flags. Environment: HOST(loopback), PORT, BASE_PATH, CAD_WEB_ORIGIN (required by release builds; no built-in hostname), CAD_WEB_ASSETS, CAD_WEB_TRUSTED_ACCESS=1 (explicit credential-free deployment). Access code: <runtime-dir>/web-access-code (0600). Browser grants expire after 8h; restart revokes grants. No Python runtime.");
             return Ok(());
         }
         cad_access::Action::Version => {
@@ -613,8 +613,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("invalid BASE_PATH".into());
     }
-    let origin =
-        std::env::var("CAD_WEB_ORIGIN").unwrap_or("https://example.ts.net".into());
+    // No deployment-specific default: a tailnet hostname must never be baked into the source.
+    // Every launcher (scripts/publish-web.sh and the browser tests) sets this explicitly.
+    let origin = std::env::var("CAD_WEB_ORIGIN")
+        .map_err(|_| "CAD_WEB_ORIGIN is required, for example https://<host>.<tailnet>.ts.net")?;
     if !(origin.starts_with("https://")
         || origin.starts_with("http://127.0.0.1:")
         || origin.starts_with("http://localhost:"))

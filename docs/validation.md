@@ -364,7 +364,7 @@ Reconnect 查询原 request.status 后显示已完成，保持 revision=7，无�
 
 上线验证 tests/web_deployment.cjs：
 
-- https://example.ts.net/apps/miocad/、JS、模块 Worker、WASM MIME、health、嵌套路由均 200。
+- `https://<host>.<tailnet>.ts.net/apps/miocad/`、JS、模块 Worker、WASM MIME、health、嵌套路由均 200。
 - 真实 HTTPS Chromium 解锁、创建 Box/Fillet；cookie Secure/HttpOnly=true，SameSite=Strict，Path=/apps/miocad/。
 - 默认 runtime-dir 与 CLI/Agent 一致；保留一份演示文档 6b7e82d8-1c96dd3f-dbc6c95d-9ff22e0-，revision=2。
 - systemctl --user restart miocad-web 后 CAD service ID 和原文档 revision/valid 均未改变；
@@ -431,7 +431,7 @@ tests/codex_mcp_host.py 使用真实 codex-cli 0.162.1 app-server，临时运行
 服务 Frame 的 RGB/ID 改为有界 zlib/base64，384×320 测试帧整包小于 1 MiB；
 render.frames 不再回传重复 PNG，避免简单列举触发数 MiB 输出。相机改变仍重投影/上传，没有夸大缓存覆盖范围。
 
-上线：https://example.ts.net/apps/miocad/，门户 online=true。
+上线：`https://<host>.<tailnet>.ts.net/apps/miocad/`，门户 online=true。
 升级前后原 CAD owner PID=673288、service ID、原文档/版本/事件 cursor 完全相同；没有为升级重启模型拥有者。
 独立 miocad-render-service 接管发现入口，只更换监听地址，原 worker 和 dedup/high-water 仍由旧拥有者管理；
 SDK 显式重连可跟随同身份的新监听地址，拒绝新实例。

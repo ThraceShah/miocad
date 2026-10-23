@@ -61,7 +61,7 @@ Agent 新增 `feature_edit` 提案，可修改 name、suppressed、Box size、Fi
 - 完整既有 CTest 套件 **21/21** 通过（222.47秒，包含桌面、WASM、触屏/拾取、MCP真实宿主发现及 Rust workspace）。新增兼容升级测试随后独立运行 **2/2**（含构建 fixture），使用隔离的历史 worker 二进制。
 - Rust workspace **48项测试**通过；原生全目标及 WASM Clippy `-D warnings` 通过。计数内核、参数化/存储测试在最终 SMLib 状态缓存变更后再次通过。
 - 浏览器实际 WebGPU 竖屏特征编辑及 Agent 特征编辑/任务 Undo/Redo 通过；已查看截图，修正特征操作按钮的对比度，并确认最终视图无错误。
-- 已通过现有持久服务发布到 `https://example.ts.net/apps/miocad/` 并保持门户收录；HTTPS资源、免解锁、刷新和嵌套路由通过。
+- 已通过现有持久服务发布到 `https://<host>.<tailnet>.ts.net/apps/miocad/` 并保持门户收录；HTTPS资源、免解锁、刷新和嵌套路由通过。
 - 线上新建 **Document 03** 示例：12×10×10 Box + 半径2 Fillet，revision 8；验证 Box 修改带动圆角重算、圆角编辑及对应 Undo/Redo，存储 manifest 已落盘。没有调用线上 LLM 做验证。
 - 原 Document 01（r26）与 Document 02（r4）的完整状态保持不变；原 worker/session ID 和拥有进程 **PID 673288** 保持不变。未迁移或丢弃它们的旧历史。
 - 部署证据：忽略目录 `artifacts/parametric-deployment/`；自动化测试脚本与协议/实现均纳入 Git，未向远端推送。

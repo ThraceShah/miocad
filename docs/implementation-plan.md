@@ -176,7 +176,7 @@ P5 完成记录（2026-10-18）：
 - [x] 补齐会话授权、来源检查、断线反馈与重新同步；不直接暴露内部 worker。
 - [x] 采用浏览器文件/下载接口，避免把任意服务端路径直接作为网页文件选择。
 - [x] 遵循用户的 tailnet-publish 指令：实施时读取指定 SKILL.md，处理 base path、持久服务和门户收录。
-- [x] 默认发布目标为 `https://example.ts.net/apps/<slug>/`，slug 为 miocad，已实际发布并收录门户。
+- [x] 默认发布目标为 `https://<host>.<tailnet>.ts.net/apps/<slug>/`，slug 为 miocad，已实际发布并收录门户；具体域名由发布者的 tailnet 身份决定，不写入仓库。
 
 验收：
 

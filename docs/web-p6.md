@@ -24,7 +24,7 @@ HOST=127.0.0.1 PORT=18787 BASE_PATH=/apps/miocad/ \
 
 所有外部 URL、资源、HTTP API、cookie Path 使用 BASE_PATH。直接访问网关时其路由同样带前缀。
 门户当前会重写 cookie/Location，因此生产使用 strip-prefix=true、CAD_WEB_STRIP_PREFIX=1；网关内部路由和 cookie 使用根路径，由代理补上外部前缀。无斜杠入口重定向到规范入口；嵌套页面使用绝对 base。
-生产 origin 默认 https://example.ts.net，可用 CAD_WEB_ORIGIN 明确配置。
+生产 origin 没有内置默认值，必须由 `CAD_WEB_ORIGIN` 明确配置（`scripts/publish-web.sh` 会从本机 tailnet 身份推导并写入 unit）。
 网关只监听 loopback；HTTPS 由门户提供，不开放内部 JSONL worker。
 
 ## 授权和传输
@@ -58,7 +58,7 @@ Web 的 Native export 区域显示 Download SMB，不显示服务器路径输入
 
 ## 发布与进程寿命
 
-默认入口 https://example.ts.net/apps/miocad/，门户 https://example.ts.net/。
+入口为 `https://<host>.<tailnet>.ts.net/apps/miocad/`，门户为 `https://<host>.<tailnet>.ts.net/`，由发布者的 tailnet 身份决定。
 `scripts/publish-web.sh` 打包并部署；发布使用指定 tailnet-publish 技能。
 
 CAD daemon 由独立 `miocad-cad-service.service` 管理，Web 网关由 `miocad-web.service` 管理，通过门户 proxy 收录。

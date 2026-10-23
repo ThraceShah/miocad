@@ -101,6 +101,17 @@ if [[ ! -f "$web_release/.complete" ]]; then
     touch "$web_release/.complete"
 fi
 web_port="${CAD_WEB_PORT:-19060}"
+# The gateway has no built-in hostname; derive the public origin from this host's tailnet identity.
+if [[ -z "${CAD_WEB_ORIGIN:-}" ]]; then
+    tailnet_name="$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || true)"
+    if [[ -z "$tailnet_name" ]]; then
+        echo "CAD_WEB_ORIGIN is unset and this host's tailnet name could not be detected." >&2
+        echo "Set CAD_WEB_ORIGIN=https://<host>.<tailnet>.ts.net and retry." >&2
+        exit 1
+    fi
+    CAD_WEB_ORIGIN="https://$tailnet_name"
+fi
+web_origin="$CAD_WEB_ORIGIN"
 # Thin local adapter; provider credentials remain in the installed Agent's own store.
 agent_pi="${CAD_AGENT_PI:-$(command -v pi || true)}"
 agent_backend="${CAD_AGENT_BACKEND:-disabled}"
@@ -115,6 +126,7 @@ Environment=HOST=127.0.0.1
 Environment=PORT=$web_port
 Environment=BASE_PATH=/apps/miocad/
 Environment=CAD_WEB_ATTACH_ONLY=1
+Environment=CAD_WEB_ORIGIN=$web_origin
 Environment=CAD_WEB_REQUIRE_RELAY=1
 Environment=CAD_WEB_STRIP_PREFIX=1
 # Trusted Tailscale deployment: keep browser scoping, omit the manual access code.

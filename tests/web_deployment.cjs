@@ -2,7 +2,10 @@
 // Internal test tool; not part of the application runtime.
 const {chromium}=require(process.env.CAD_PLAYWRIGHT||'playwright');const fs=require('fs'),assert=require('assert/strict'),{spawnSync}=require('child_process');
 const driver=require('./ui_driver.cjs');
-const url=process.env.CAD_WEB_URL||'https://example.ts.net/apps/miocad/',out='artifacts/p7-https';fs.mkdirSync(out,{recursive:true});const pause=ms=>new Promise(r=>setTimeout(r,ms));
+const url=process.env.CAD_WEB_URL,out='artifacts/p7-https';
+if(!url){console.error('CAD_WEB_URL is required (for example https://<host>.<tailnet>.ts.net/apps/miocad/)');process.exit(2);}
+const portalUrl=process.env.CAD_PORTAL_URL||new URL('/_portal/api/apps',url).href,portalBase=new URL('/',portalUrl).href;
+fs.mkdirSync(out,{recursive:true});const pause=ms=>new Promise(r=>setTimeout(r,ms));
 function cli(command){const p=spawnSync((process.env.CAD_BIN||'target/release')+'/cad-cli',['--client-id','p7-https-verifier'],{input:JSON.stringify(command)+'\n',encoding:'utf8',maxBuffer:16*1024*1024});assert.equal(p.status,0,p.stderr);const r=JSON.parse(p.stdout);assert(r.ok,JSON.stringify(r));return r.result;}
 (async()=>{const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});try{
  const context=await browser.newContext({viewport:{width:1280,height:820},...(process.env.CAD_TEST_PROXY?{proxy:{server:process.env.CAD_TEST_PROXY,bypass:new URL(url).hostname}}:{})});const page=await context.newPage();const errors=[],frames=new Map(),fullFrames=[];page.on('response',async response=>{if(response.url().endsWith('/api/view')){try{const frame=await response.json();frames.set(frame.metadata.render_id,frame.metadata);fullFrames.push(frame);}catch{}}});page.on('pageerror',e=>errors.push(e.message));
@@ -18,7 +21,7 @@ function cli(command){const p=spawnSync((process.env.CAD_BIN||'target/release')+
  await page.reload();await unlock();await page.screenshot({path:out+'/25-https-reauthed-preserved-model.png'});
  // A second page shares documents but obtains a separate client identity.
  const page2=await context.newPage();await page2.goto(url+'workspace/example');await page2.locator('#workspace').waitFor({state:'visible'});await pause(1500);await page2.screenshot({path:out+'/26-nested-second-page.png'});
- assert.deepEqual(errors,[]);const portal=await context.request.get('https://example.ts.net/_portal/api/apps');assert((await portal.json()).some(a=>a.slug==='miocad'&&a.online));
- fs.writeFileSync(out+'/deployment.json',JSON.stringify({passed:true,url,portal:'https://example.ts.net/',document:doc,service_id:before,state,cookie_attributes:{secure:cookie.secure,httpOnly:cookie.httpOnly,path:cookie.path,sameSite:cookie.sameSite},gateway_restart_preserved:true,renderer_restart_preserved:true,adapter:viewport.adapter,shared_capture_identical:true,browser:browser.version(),errors},null,2));
+ assert.deepEqual(errors,[]);const portal=await context.request.get(portalUrl);assert((await portal.json()).some(a=>a.slug==='miocad'&&a.online));
+ fs.writeFileSync(out+'/deployment.json',JSON.stringify({passed:true,url,portal:portalBase,document:doc,service_id:before,state,cookie_attributes:{secure:cookie.secure,httpOnly:cookie.httpOnly,path:cookie.path,sameSite:cookie.sameSite},gateway_restart_preserved:true,renderer_restart_preserved:true,adapter:viewport.adapter,shared_capture_identical:true,browser:browser.version(),errors},null,2));
  console.log(JSON.stringify({passed:true,url,document:doc,gateway_restart_preserved:true}));
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

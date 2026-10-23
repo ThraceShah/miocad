@@ -1,8 +1,10 @@
 // Read-only touch orbit regression: rendering must advance even while /api/view is held.
+// Set CAD_WEB_URL to the gateway or published base URL; no hostname is committed.
 const {chromium}=require(process.env.CAD_PLAYWRIGHT||'playwright');
 const driver=require('./ui_driver.cjs');
 const assert=require('assert/strict'),fs=require('fs'),{spawnSync}=require('child_process');
-const url=process.env.CAD_WEB_URL||'https://example.ts.net/apps/miocad/';
+const url=process.env.CAD_WEB_URL;
+if(!url){console.error('CAD_WEB_URL is required (for example http://127.0.0.1:8787/apps/miocad/)');process.exit(2);}
 const out=process.env.CAD_WEB_TEST_OUTPUT||'artifacts/orbit';fs.mkdirSync(out,{recursive:true});
 (async()=>{
  const webgl=process.env.CAD_TEST_GPU==='webgl';

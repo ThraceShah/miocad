@@ -70,7 +70,7 @@ SIGTERM/正常停止会恢复原监听地址，不杀原 worker。重启渲染�
 生产用三个独立 user systemd unit：miocad-cad-service（文档拥有者）、miocad-render-service（GPU/转发）、miocad-web（HTTP/WASM）。
 scripts/publish-web.sh 更新后两者，不替换已有文档拥有者。Web 生产启动要求渲染入口已发布，避免开机时误附着原监听器；
 独立手工重启渲染入口后，也须重启 Web 网关并重新解锁，原生/MCP 可显式 reconnect。若拥有者自身停止/崩溃，仍不具备磁盘恢复能力。
-默认 HTTPS 入口仍为 https://example.ts.net/apps/miocad/，按 tailnet-publish 技能发布并收录门户。
+默认 HTTPS 入口为发布者 tailnet 的 `https://<host>.<tailnet>.ts.net/apps/miocad/`，按 tailnet-publish 技能发布并收录门户。
 
 ## 验证与性能边界
 

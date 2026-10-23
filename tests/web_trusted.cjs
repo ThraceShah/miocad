@@ -1,7 +1,9 @@
 // Read-only acceptance for the explicitly credential-free Tailscale deployment.
+// No deployment hostname is committed: set CAD_WEB_URL to the published base URL.
 const {chromium}=require(process.env.CAD_PLAYWRIGHT||'playwright');
 const assert=require('assert/strict'),fs=require('fs');
-const url=process.env.CAD_WEB_URL||'https://example.ts.net/apps/miocad/';
+const url=process.env.CAD_WEB_URL;
+if(!url){console.error('CAD_WEB_URL is required (for example https://<host>.<tailnet>.ts.net/apps/miocad/)');process.exit(2);}
 const out=process.env.CAD_WEB_TEST_OUTPUT||'artifacts/trusted-web';fs.mkdirSync(out,{recursive:true});
 (async()=>{
  const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});

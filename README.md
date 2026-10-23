@@ -115,7 +115,8 @@ python3 scripts/package.py
 
 ## egui WebUI
 
-入口：[AI-CAD WebUI](https://example.ts.net/apps/miocad/)，[栖点门户](https://example.ts.net/)。
+入口由发布者自己的 Tailscale 主机名决定：`https://<host>.<tailnet>.ts.net/apps/miocad/`，门户为 `https://<host>.<tailnet>.ts.net/`。
+本项目不在源码中内置任何具体部署域名，`scripts/publish-web.sh` 会从本机 tailnet 身份推导，也可用 `CAD_WEB_ORIGIN` 显式指定。
 当前 Tailscale 发布环境直接进入工作区，无需输入访问码。`scripts/publish-web.sh` 显式设置 `CAD_WEB_TRUSTED_ACCESS=1`，浏览器仍使用隔离的会话 Cookie 和页面身份。
 
 其他默认启动方式保留访问码：首次输入本机 CAD runtime-dir 的 `web-access-code`（0600 文件），默认路径 `/run/user/1000/miocad/web-access-code`。移除上述环境变量并重启 Web 网关，即恢复访问码模式。
